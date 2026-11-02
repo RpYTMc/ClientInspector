@@ -48,9 +48,13 @@ What it does **not** catch, so you are not surprised:
 - Wurst (since 7.44, July 2024) and LiquidBounce keep their strings outside the vanilla language
   system, so the probe cannot see them at all. Aoba, Shoreline, schizoid, Baritone, BleachHack and the
   Meteor addons Rejects, Trouser Streak, Numby, glazed and Nora Tweaks ship no language file either.
-- ExploitPreventer filters translation at the codec level and answers exactly like vanilla, so its
-  users are invisible. OpSec and older protection mods that blank or swallow the sign show up as a
-  `probe-blocked` alert (blank reply or no reply) rather than a kick.
+- OpSec, ExploitPreventer and similar mods rewrite the probe reply so every mod key looks
+  unresolved. Doorman catches that with canaries: keys that must resolve on a client whose channels
+  prove the mod is installed (Fabric API's `pack.source.fabricmod`, Simple Voice Chat's
+  `key.push_to_talk`; `probe.canaries` in the config). A raw canary records the probe as
+  `FILTERED` and fires the `probe-filtered` rule, alert-only by default; promote it to `KICK` if
+  hider mods are not allowed on your server. Those mods also tell their user that the server probed
+  them. Mods that blank or swallow the sign show up as `probe-blocked` instead.
 - A player can always recompile a client to lie. Doorman stops the unsuspecting, not the determined.
   Keep Grim for behaviour.
 
@@ -132,6 +136,8 @@ high-confidence `HACK` and `SPOOF` matches; everything else alerts.
   no-reply is retried once (`probe.retry_on_no_reply`) in case the client's chunk was not loaded yet.
 - `probe.skip_brands`: brands that are never probed (default: Geyser, whose Bedrock players have no
   Java sign editor).
+- `probe.canaries`: channel patterns plus the key that must resolve when they are present; a raw echo
+  marks the probe `FILTERED`.
 - `probe.recheck_minutes`: re-probe online players periodically (0 = only on join).
 - `probe.y_offset`: where the invisible sign is placed relative to the player (default 5 blocks below).
 - `alerts.webhook_url`: Discord webhook for the `WEBHOOK` action.

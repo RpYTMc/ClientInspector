@@ -116,6 +116,15 @@ public final class DefaultRules {
 		blocked.actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT));
 		rules.add(blocked);
 
+		Rule filtered = new Rule();
+		filtered.id = "probe-filtered";
+		filtered.name = "Translation filter active (OpSec / ExploitPreventer)";
+		filtered.category = RuleCategory.SPOOF;
+		filtered.confidence = "high";
+		filtered.probe_state = new ArrayList<>(List.of(ProbeState.FILTERED));
+		filtered.actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK));
+		rules.add(filtered);
+
 		// ---- legitimate clients that identify themselves: logged for the profile, never alerted ----
 		rules.add(legit("lunar-client", "Lunar Client", List.of("lunar:*", "lunarclient:*")));
 		rules.add(legit("feather-client", "Feather Client", List.of("feather:*")));

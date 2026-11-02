@@ -16,6 +16,8 @@ First version.
   Badlion, Essential, Replay Mod, Xaero's, Simple Voice Chat.
 - Client game test (`./gradlew runClientGameTest`): a real client joins an in-process server; the
   join probe must echo every hack key unresolved and a self-test probe must translate `key.jump`.
+- Canary keys: a client that provably has Fabric API or Simple Voice Chat but echoes their keys raw is
+  recorded as `FILTERED` (OpSec, ExploitPreventer) and matched by the `probe-filtered` rule.
 - Profiles store, `/doorman` command, LuckPerms-compatible permissions, Discord webhook.
 
 Fingerprint sources (read 2026-11-01/02): Meteor Client branch 1.21.11 at 48030717dc0d,

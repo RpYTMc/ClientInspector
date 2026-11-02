@@ -104,6 +104,16 @@ class RuleMatcherTest {
 	}
 
 	@Test
+	void filteredProbeMatchesTheFilterRuleOnly() {
+		Signals filtered = new Signals("fabric", FABRIC_API_BASELINE, ProbeState.FILTERED, Set.of());
+		List<String> ids = matcher.matching(defaults, filtered, RulePhase.SETTLED).stream().map(r -> r.id).toList();
+		assertTrue(ids.contains("probe-filtered"), ids.toString());
+		assertFalse(ids.contains("probe-blocked"), ids.toString());
+		Signals honest = new Signals("fabric", FABRIC_API_BASELINE, ProbeState.REPLIED, Set.of("pack.source.fabricmod"));
+		assertFalse(matcher.matching(defaults, honest, RulePhase.SETTLED).contains(find("probe-filtered")));
+	}
+
+	@Test
 	void brandRegexIsCaseInsensitiveAndWholeString() {
 		Rule rule = new Rule();
 		rule.id = "cb";

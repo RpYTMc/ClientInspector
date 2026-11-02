@@ -41,11 +41,16 @@ public final class ProbeClientGameTest implements FabricClientGameTest {
 				check(joined.probe() == ProbeState.REPLIED, "join probe should be REPLIED but was " + joined.probe());
 				check(!replies.isEmpty(), "join probe should have replies");
 				for (Map.Entry<String, String> e : replies.entrySet()) {
+					if (e.getKey().equals("pack.source.fabricmod")) {
+						check("Fabric mod".equals(e.getValue()), "the Fabric API canary must translate on a client with Fabric API, got '" + e.getValue() + "'");
+						continue;
+					}
 					String raw = ProbeKey.parse(e.getKey()).id();
 					check(raw.equals(e.getValue()), "plain client must echo the raw id for " + e.getKey() + " but sent '" + e.getValue() + "'");
 				}
 				check(replies.containsKey("keybind:key.meteor-client.open-gui"), "the keybind probe line should have a reply: " + replies.keySet());
-				check(joined.resolvedKeys().isEmpty(), "no hack-client key may resolve on a plain client: " + joined.resolvedKeys());
+				check(joined.resolvedKeys().equals(java.util.Set.of("pack.source.fabricmod")),
+						"only the Fabric API canary may resolve on a plain client: " + joined.resolvedKeys());
 				check(joined.matchedRules().isEmpty(), "a plain Fabric client must match no rule: " + joined.matchedRules());
 
 				// 2. Self-test probe: the vanilla key must come back translated.

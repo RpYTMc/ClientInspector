@@ -19,6 +19,7 @@ import rp.doorman.action.ActionExecutor;
 import rp.doorman.action.Placeholders;
 import rp.doorman.audit.ProfileStore;
 import rp.doorman.mixin.ServerCommonNetworkHandlerAccessor;
+import rp.doorman.probe.CanaryCheck;
 import rp.doorman.probe.ProbeKey;
 import rp.doorman.probe.ProbeRunner;
 import rp.doorman.rules.ChannelPattern;
@@ -336,6 +337,9 @@ public final class Detector {
 				keys.add(ProbeKey.keybind(id));
 			}
 		}
+		for (DoormanConfig.Canary canary : config.probe.canaries) {
+			keys.add(ProbeKey.translation(canary.key));
+		}
 		return new ArrayList<>(keys);
 	}
 
@@ -392,6 +396,14 @@ public final class Detector {
 				}
 			});
 			return;
+		}
+		if (state == ProbeState.REPLIED) {
+			List<String> rawCanaries = CanaryCheck.unresolvedCanaries(config.probe.canaries, session.channels(), session.resolvedKeys(), matcher);
+			if (!rawCanaries.isEmpty()) {
+				state = ProbeState.FILTERED;
+				Doorman.LOGGER.info("{}: canary keys {} came back raw although their mods are present: a translation filter is active",
+						session.name(), rawCanaries);
+			}
 		}
 		session.setProbe(state);
 		session.advance(RulePhase.SETTLED);

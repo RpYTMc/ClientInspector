@@ -64,6 +64,27 @@ public final class DoormanConfig {
 		public boolean retry_on_no_reply = true;
 		/** Brand regexes (find, case-insensitive) that are never probed: Bedrock players behind Geyser have no Java sign editor. */
 		public List<String> skip_brands = new ArrayList<>(List.of("^geyser"));
+		/**
+		 * Keys that must resolve on a client whose channels prove the owning mod is installed. A raw
+		 * echo for one of them means a translation filter (OpSec, ExploitPreventer) rewrote the reply,
+		 * and the probe is recorded as FILTERED instead of REPLIED.
+		 */
+		public List<Canary> canaries = new ArrayList<>(List.of(
+				new Canary(List.of("fabric:*", "fabric-*:*"), "pack.source.fabricmod"),
+				new Canary(List.of("voicechat:*", "vc:*"), "key.push_to_talk")));
+	}
+
+	public static final class Canary {
+		public List<String> channels_any = new ArrayList<>();
+		public String key = "";
+
+		public Canary() {
+		}
+
+		public Canary(List<String> channelsAny, String key) {
+			this.channels_any = new ArrayList<>(channelsAny);
+			this.key = key;
+		}
 	}
 
 	public static final class Alerts {
@@ -107,6 +128,8 @@ public final class DoormanConfig {
 		if (probe.self_test_key == null || probe.self_test_key.isBlank()) probe.self_test_key = "key.jump";
 		if (probe.skip_brands == null) probe.skip_brands = new ArrayList<>();
 		probe.skip_brands.removeIf(s -> s == null || s.isBlank());
+		if (probe.canaries == null) probe.canaries = new ArrayList<>();
+		probe.canaries.removeIf(c -> c == null || c.key == null || c.key.isBlank() || c.channels_any == null || c.channels_any.isEmpty());
 		if (alerts.webhook_url == null) alerts.webhook_url = "";
 		alerts.cooldown_seconds = Math.max(0, alerts.cooldown_seconds);
 		audit.max_profiles = Math.max(10, audit.max_profiles);

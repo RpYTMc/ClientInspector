@@ -43,7 +43,10 @@ public final class DoormanConfig {
 			"architectury", "owo", "cloth-config", "yacl", "fabrication", "waila", "wthit",
 			"emi", "jei", "rei", "roughlyenoughitems", "carpet", "worldedit", "axiom", "flashback",
 			"noxesium", "vivecraft", "litematica", "minihud", "tweakeroo", "itemscroller",
-			"inventoryprofilesnext", "simple-voice-chat", "controlify"));
+			"inventoryprofilesnext", "simple-voice-chat", "controlify",
+			"balm", "distant_horizons", "forgeconfigapiport", "fzzy_config", "itemswapper",
+			"libjf-config-network-v0", "pickupnotifier", "puzzleslib", "shulkerboxtooltip", "speedrunigt",
+			"supermartijn642configlib", "whereisit", "xaerolib"));
 
 	public static final class Probe {
 		/** Run the translation-key sign probe on every join. */

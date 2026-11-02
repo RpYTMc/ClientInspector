@@ -55,6 +55,10 @@ What it does **not** catch, so you are not surprised:
   `FILTERED` and fires the `probe-filtered` rule, alert-only by default; promote it to `KICK` if
   hider mods are not allowed on your server. Those mods also tell their user that the server probed
   them. Mods that blank or swallow the sign show up as `probe-blocked` instead.
+- The limit of that trick: OpSec's default AUTO mode whitelists every mod that registers channels,
+  which is exactly the evidence the canaries rely on, so its users resolve the canaries and still
+  hide Meteor. Canaries catch ExploitPreventer and OpSec's manual whitelist mode, not OpSec AUTO.
+  Nothing passive beats a hider configured that way; a mandatory companion mod does.
 - A player can always recompile a client to lie. Doorman stops the unsuspecting, not the determined.
   Keep Grim for behaviour.
 

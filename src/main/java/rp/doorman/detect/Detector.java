@@ -113,7 +113,18 @@ public final class Detector {
 		profiles.load();
 	}
 
+	/**
+	 * SERVER_STOPPING fires before vanilla disconnects the players, and their DISCONNECT callbacks
+	 * then arrive on the netty thread with the server already gone, so snapshot everyone first.
+	 */
 	public void onServerStopping() {
+		if (config.audit.keep_profiles) {
+			for (ClientSession session : sessions.all()) {
+				if (session.joined() && !session.isPlaceholder()) {
+					profiles.record(session, config.audit.max_profiles);
+				}
+			}
+		}
 		profiles.saveIfDirty();
 		scheduler.clear();
 		server = null;
@@ -205,7 +216,7 @@ public final class Detector {
 		}
 	}
 
-	// ------------------------------------------------------------------ play phase (server thread)
+	// ---------------------------------- play phase (server thread; DISCONNECT may arrive on the netty thread)
 
 	public void onJoin(ServerPlayNetworkHandler handler, MinecraftServer server) {
 		ClientConnection connection = connection(handler);

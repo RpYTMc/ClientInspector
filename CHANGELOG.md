@@ -27,6 +27,10 @@ The client part: the same jar, installed on a client, reports that client's mod 
   the client part state.
 - The server half now runs only on dedicated servers: singleplayer and LAN worlds are never
   inspected, `/clientinspector` is not registered there, and a client writes no config files.
+- A client with the jar, and every client in required mode, is held in the configuration phase
+  until the LuckPerms bypass lookup has answered, so kicks and refusals happen before it reaches
+  the world. Kicks decided at join now wait one tick: kicking inside the join event could leave a
+  ghost player entity in the world.
 
 Mod ids for the new rules were read from each mod's own `fabric.mod.json` (the jars of Meteor
 Client 1.21.11-76, Meteor Rejects 0.3, Freecam 1.3.6, Advanced XRay 21.11.0, OpSec 1.1.7.1 and

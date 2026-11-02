@@ -146,7 +146,10 @@ default rules and the `mod_id` of the probe rules once; rules you edited or adde
 Permissions: `clientinspector.admin` (commands), `clientinspector.alerts` (receive alerts), `clientinspector.bypass`
 (never kicked or banned, still logged and alerted). Server operators get the same exemption
 automatically. While LuckPerms has not yet answered the bypass lookup for a joining player, rules
-that would kick or ban wait until the player is in the world; everything else runs at once.
+that would kick or ban wait until the player is in the world; everything else runs at once. Clients
+with the client part, and every client in `required` mode, are instead held in the configuration
+phase until the answer is in (at most `companion.timeout_ticks`), so they are kicked or refused
+before they reach the world.
 
 ## Rules (`config/clientinspector/rules.json`)
 

@@ -242,8 +242,25 @@ public final class Detector {
 		}
 		resolveBypass(session);
 		evaluate(session, text -> handler.disconnect(text));
-		if (!session.kicked() && !companion.start(handler, connection, session, server)) {
+		if (session.kicked()) {
+			return;
+		}
+		ClientInspectorConfig.CompanionMode mode = config.companion.mode;
+		boolean hasClientPart = mode != ClientInspectorConfig.CompanionMode.OFF && CompanionServer.hasClientPart(handler);
+		if (!session.bypassResolved() && (hasClientPart || mode == ClientInspectorConfig.CompanionMode.REQUIRED)) {
+			// Configuration tasks run in order, so the report task below starts once the lookup has answered,
+			// and the report's kick rules and the required-mode decision can act before the player exists.
+			handler.addTask(new BypassWaitTask(handler, session, server, scheduler, config.companion.timeout_ticks, () -> {
+				if (!hasClientPart) {
+					requireClientPart(session, text -> handler.disconnect(text));
+				}
+				evaluate(session, text -> handler.disconnect(text));
+			}));
+		} else if (!hasClientPart) {
 			requireClientPart(session, text -> handler.disconnect(text));
+		}
+		if (hasClientPart) {
+			companion.start(handler, connection, session, server);
 		}
 	}
 
@@ -319,8 +336,9 @@ public final class Detector {
 		if (!session.bypassResolved() || !session.bypass()) {
 			session.setBypass(PermissionGate.hasBypass(player));
 		}
+		Consumer<Text> kick = kickAfterJoin(player, server);
 		if (session.requiredCheckPending()) {
-			requireClientPart(session, text -> player.networkHandler.disconnect(text));
+			requireClientPart(session, kick);
 		}
 		try {
 			session.addPlayChannels(ids(ServerPlayNetworking.getSendable(handler)));
@@ -330,7 +348,7 @@ public final class Detector {
 		if (config.audit.keep_profiles) {
 			profiles.countJoin(session.uuid());
 		}
-		evaluate(session, text -> player.networkHandler.disconnect(text));
+		evaluate(session, kick);
 		int delay = config.probe.delay_ticks + (config.probe.jitter_ticks > 0 ? random.nextInt(config.probe.jitter_ticks + 1) : 0);
 		ClientSession scheduled = session;
 		scheduler.schedule(server.getTicks() + delay, () -> settle(scheduled));
@@ -342,9 +360,23 @@ public final class Detector {
 			return;
 		}
 		session.addPlayChannels(ids(channels));
-		if (session.joined() && handler.player != null) {
-			evaluate(session, text -> handler.player.networkHandler.disconnect(text));
+		MinecraftServer srv = server;
+		if (session.joined() && handler.player != null && srv != null) {
+			evaluate(session, kickAfterJoin(handler.player, srv));
 		}
+	}
+
+	/**
+	 * Kicks decided in the JOIN event and the channel registrations that arrive with it wait one tick.
+	 * Fabric fires JOIN while vanilla is still adding the player: a disconnect at that point removes a
+	 * player that is not listed yet, vanilla then adds it anyway, and a ghost entity stays in the world.
+	 */
+	private Consumer<Text> kickAfterJoin(ServerPlayerEntity player, MinecraftServer server) {
+		return text -> scheduler.schedule(server.getTicks() + 1, () -> {
+			if (player.networkHandler.isConnectionOpen()) {
+				player.networkHandler.disconnect(text);
+			}
+		});
 	}
 
 	public void onPlayUnregister(ServerPlayNetworkHandler handler, List<Identifier> channels) {
@@ -578,7 +610,7 @@ public final class Detector {
 		}
 	}
 
-	private static void resolveBypass(ClientSession session) {
+	static void resolveBypass(ClientSession session) {
 		if (session.bypassResolved()) {
 			return;
 		}

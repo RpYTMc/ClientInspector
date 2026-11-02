@@ -3,7 +3,7 @@
 	"id": "clientinspector",
 	"version": "${version}",
 	"name": "Client Inspector",
-	"description": "Server-side client fingerprinting: reads the brand and plugin channels every joining client leaks, runs a translation-key probe for known hack clients, and alerts, kicks or bans by configurable rules. No client mod needed.",
+	"description": "Server-side client fingerprinting: reads the brand and plugin channels every joining client leaks, runs a translation-key probe for known hack clients, and alerts, kicks or bans by configurable rules. Nothing is needed on the client; players who install the same jar there also report their mod list, and a server can require that.",
 	"authors": [
 		"RpYT"
 	],
@@ -17,6 +17,9 @@
 	"entrypoints": {
 		"main": [
 			"rp.clientinspector.ClientInspector"
+		],
+		"client": [
+			"rp.clientinspector.client.ClientInspectorClient"
 		]
 	},
 	"mixins": [

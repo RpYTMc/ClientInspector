@@ -10,6 +10,7 @@ import rp.clientinspector.ClientInspector;
 import rp.clientinspector.ClientInspectorConfig;
 import rp.clientinspector.PermissionGate;
 import rp.clientinspector.audit.ProfileStore;
+import rp.clientinspector.rules.CompanionState;
 import rp.clientinspector.rules.Rule;
 import rp.clientinspector.rules.RuleAction;
 import rp.clientinspector.rules.RuleCategory;
@@ -191,6 +192,15 @@ public final class ActionExecutor {
 		fields.add(new DiscordWebhook.Field("Outcome", outcome(rule, enforced, ban, suppressed), true));
 		if (!session.resolvedKeys().isEmpty()) {
 			fields.add(new DiscordWebhook.Field("Resolved keys", clip(String.join(", ", session.resolvedKeys()), 1000), false));
+		}
+		if (session.companion() != CompanionState.NONE) {
+			fields.add(new DiscordWebhook.Field("Client part", session.companion() + ", " + session.reportedMods().size() + " mods reported", true));
+		}
+		if (!rule.reported_mods_any.isEmpty()) {
+			fields.add(new DiscordWebhook.Field("Reported", "`" + Placeholders.reported(session, rule).replace("`", "'") + "`", true));
+		}
+		if (!session.mismatchReasons().isEmpty()) {
+			fields.add(new DiscordWebhook.Field("Mismatch", clip(String.join("\n", session.mismatchReasons()), 1000), false));
 		}
 		String channels = clip(String.join(", ", session.channels()), 1000);
 		fields.add(new DiscordWebhook.Field("Channels (" + session.channels().size() + ")", channels, false));

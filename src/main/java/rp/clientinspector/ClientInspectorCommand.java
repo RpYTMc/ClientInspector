@@ -11,8 +11,11 @@ import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import rp.clientinspector.ClientInspectorConfig.CompanionMode;
 import rp.clientinspector.audit.ProfileStore;
+import rp.clientinspector.companion.ReportPayload;
 import rp.clientinspector.detect.Detector;
+import rp.clientinspector.rules.CompanionState;
 import rp.clientinspector.rules.Rule;
 import rp.clientinspector.rules.RuleSet;
 import rp.clientinspector.session.BrandNormalizer;
@@ -50,7 +53,12 @@ public final class ClientInspectorCommand {
 								.then(CommandManager.literal("selftest").executes(ctx -> probe(ctx, detector, true)))))
 				.then(CommandManager.literal("alerts")
 						.then(CommandManager.literal("on").executes(ctx -> alerts(ctx, detector, true)))
-						.then(CommandManager.literal("off").executes(ctx -> alerts(ctx, detector, false)))));
+						.then(CommandManager.literal("off").executes(ctx -> alerts(ctx, detector, false))))
+				.then(CommandManager.literal("companion")
+						.executes(ctx -> companion(ctx, detector, null))
+						.then(CommandManager.literal("off").executes(ctx -> companion(ctx, detector, CompanionMode.OFF)))
+						.then(CommandManager.literal("optional").executes(ctx -> companion(ctx, detector, CompanionMode.OPTIONAL)))
+						.then(CommandManager.literal("required").executes(ctx -> companion(ctx, detector, CompanionMode.REQUIRED)))));
 		// /ci is a short alias: same permission, same subcommands.
 		dispatcher.register(CommandManager.literal("ci").requires(root.getRequirement()).executes(root.getCommand()).redirect(root));
 	}
@@ -58,7 +66,7 @@ public final class ClientInspectorCommand {
 	private static int status(CommandContext<ServerCommandSource> ctx, Detector detector) {
 		ClientInspectorConfig cfg = detector.config();
 		String text = "Client Inspector: " + detector.rules().rules().size() + " rules, probe "
-				+ (cfg.probe.enabled ? "on" : "off") + ", monitor_only=" + cfg.monitor_only + ", "
+				+ (cfg.probe.enabled ? "on" : "off") + ", client part " + cfg.companion.mode.id() + ", monitor_only=" + cfg.monitor_only + ", "
 				+ detector.sessions().size() + " tracked connections, " + detector.profiles().size() + " stored profiles";
 		ctx.getSource().sendFeedback(() -> Text.literal(text).formatted(Formatting.GRAY), false);
 		return 1;
@@ -69,7 +77,7 @@ public final class ClientInspectorCommand {
 		RuleSet rules;
 		try {
 			cfg = ClientInspectorConfig.loadOrThrow();
-			rules = RuleSet.loadOrThrow();
+			rules = RuleSet.loadOrThrow(cfg);
 		} catch (IOException | RuntimeException e) {
 			ClientInspector.LOGGER.error("Failed to reload Client Inspector config; keeping the current one", e);
 			ctx.getSource().sendError(Text.literal("Reload failed: " + ClientInspectorConfig.describe(e) + " - keeping current config"));
@@ -92,6 +100,7 @@ public final class ClientInspectorCommand {
 					+ " channels=" + s.channels().size() + " probe=" + s.probe()
 					+ (s.resolvedKeys().isEmpty() ? "" : " resolved=" + s.resolvedKeys())
 					+ (s.matchedRules().isEmpty() ? "" : " matched=" + s.matchedRules())
+					+ companionMark(s.companion(), s.reportedMods().size())
 					+ (s.bypass() ? " [bypass]" : "");
 			ctx.getSource().sendFeedback(() -> Text.literal(line).formatted(Formatting.GRAY), false);
 		}
@@ -122,6 +131,17 @@ public final class ClientInspectorCommand {
 				send(ctx, "    " + e.getKey() + " -> '" + e.getValue() + "'");
 			}
 			send(ctx, "  matched rules: " + session.matchedRules());
+			ReportPayload report = session.report();
+			send(ctx, "  client part: " + session.companion() + (report == null ? ""
+					: "  (loader " + report.loaderVersion() + ", game " + report.gameVersion() + ", " + report.mods().size() + " mods"
+					+ (report.truncated() ? ", list cut short" : "") + ")"));
+			for (String reason : session.mismatchReasons()) {
+				send(ctx, "    mismatch: " + reason);
+			}
+			if (!session.reportedMods().isEmpty()) {
+				send(ctx, "    " + String.join(", ", session.reportedMods().values().stream()
+						.map(m -> m.id() + " " + m.version() + (m.nested() ? " (jar-in-jar)" : "")).toList()));
+			}
 			List<String> unknown = detector.unknownNamespaces(session);
 			send(ctx, "  unlisted namespaces: " + (unknown.isEmpty() ? "none" : String.join(", ", unknown)));
 			return 1;
@@ -140,7 +160,50 @@ public final class ClientInspectorCommand {
 			send(ctx, "    " + e.getKey() + " -> '" + e.getValue() + "'");
 		}
 		send(ctx, "  matched rules: " + p.matched_rules);
+		send(ctx, "  client part: " + p.companion + (p.reported_mods.isEmpty() ? "" : "  (" + p.reported_mods.size() + " mods)"));
+		for (String reason : p.companion_mismatch) {
+			send(ctx, "    mismatch: " + reason);
+		}
+		if (!p.reported_mods.isEmpty()) {
+			send(ctx, "    " + String.join(", ", p.reported_mods.stream()
+					.map(m -> m.id + " " + m.version + (m.nested ? " (jar-in-jar)" : "")).toList()));
+		}
 		return 1;
+	}
+
+	/** Shows the client part mode, or sets it and saves config.json. Takes effect for the next connection. */
+	private static int companion(CommandContext<ServerCommandSource> ctx, Detector detector, CompanionMode mode) {
+		ClientInspectorConfig cfg = detector.config();
+		if (mode == null) {
+			long reported = detector.sessions().all().stream().filter(s -> s.companion() != CompanionState.NONE).count();
+			send(ctx, "Client part: " + cfg.companion.mode.id() + " (" + reported + " of " + detector.sessions().size()
+					+ " tracked connections have it), download " + cfg.companion.download_url);
+			return 1;
+		}
+		if (!cfg.fromFile()) {
+			ctx.getSource().sendError(Text.literal("config.json could not be read at startup; fix it and /clientinspector reload first"));
+			return 0;
+		}
+		cfg.companion.mode = mode;
+		cfg.save();
+		String note = switch (mode) {
+			case OFF -> "clients are not asked for their mod list";
+			case OPTIONAL -> "clients with the jar report their mods, everyone may join";
+			case REQUIRED -> "clients without the jar are refused" + (cfg.companion.exempt_bypass ? " (operators and bypass holders exempt)" : "");
+		};
+		ctx.getSource().sendFeedback(() -> Text.literal("Client part mode set to " + mode.id() + " from the next join: " + note)
+				.formatted(Formatting.GREEN), true);
+		return 1;
+	}
+
+	/** The verified mark in /clientinspector online: present only when the client part answered or should have. */
+	private static String companionMark(CompanionState state, int reported) {
+		return switch (state) {
+			case NONE -> "";
+			case REPORTED -> " [client part: " + reported + " mods]";
+			case TIMEOUT -> " [client part: no report]";
+			case MISMATCH -> " [client part: MISMATCH]";
+		};
 	}
 
 	private static int probe(CommandContext<ServerCommandSource> ctx, Detector detector, boolean selfTest) throws CommandSyntaxException {

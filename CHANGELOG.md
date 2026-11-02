@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.0 - 2026-11-02
+
+The client part: the same jar, installed on a client, reports that client's mod list while it joins.
+
+- Configuration-phase handshake: the server sends `clientinspector:hello` to clients that registered
+  that channel; the client answers with `clientinspector:report` (mod id, version, SHA-256 of the
+  jar, jar-in-jar flag; at most 512 mods and 30 KB, hashes dropped first when it is bigger). Clients
+  without the jar are not asked and not held up. The client hashes its jars once at startup in the
+  background, logs one line, and does nothing on servers without Client Inspector.
+- `companion.mode`: `off`, `optional` (default) or `required`. Required mode refuses clients without
+  the jar, or whose report does not arrive within `companion.timeout_ticks`, before they reach the
+  world, with `companion.kick_message` and `companion.download_url`. Operators and bypass holders
+  are exempt while `companion.exempt_bypass` is on; Geyser players always are.
+- Cross-check: a report that leaves out a mod the probe just proved (new optional rule field
+  `mod_id`), or leaves out Fabric API while the client registers Fabric channels, marks the client
+  `MISMATCH`.
+- Rule conditions `reported_mods_any` (ids or globs) and `companion_state`; placeholder `%reported%`.
+- Default rules `reported-hack` (kick), `reported-hider` (OpSec, ExploitPreventer; alert),
+  `reported-disallowed` (Freecam, Advanced XRay, SeedcrackerX; alert) and `companion-mismatch`
+  (kick). An existing `rules.json` gets them, and the `mod_id` of the default probe rules, once on
+  the first start (`rules_version` in `config.json`); edited and added rules are kept.
+- `/clientinspector companion [off|optional|required]`. `/clientinspector online` marks clients
+  that reported; `/clientinspector profile` lists the reported mods and any mismatch. The join log
+  line gains `companion=... reported=N`, profiles store the reported list, and Discord embeds show
+  the client part state.
+- The server half now runs only on dedicated servers: singleplayer and LAN worlds are never
+  inspected, `/clientinspector` is not registered there, and a client writes no config files.
+
+Mod ids for the new rules were read from each mod's own `fabric.mod.json` (the jars of Meteor
+Client 1.21.11-76, Meteor Rejects 0.3, Freecam 1.3.6, Advanced XRay 21.11.0, OpSec 1.1.7.1 and
+Fabric API 0.141.3; GitHub for ThunderHack-Recode, SeedcrackerX, Aoba and ExploitPreventer; the
+sources read for 0.1.0 for Meteor+, Wurst, LiquidBounce and BleachHack). Meteorist's id follows
+from its Mod Menu key; Shoreline's is unconfirmed, so it only appears in `reported-hack`, where a
+wrong id misses a detection instead of causing a false mismatch.
+
 ## 0.1.1 - 2026-11-02
 
 - `forge`, `neoforge`, `collective` and `maceattackassistance` join the default known namespaces, so a

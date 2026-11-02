@@ -13,11 +13,20 @@ import java.util.TreeSet;
  * @param channels     every channel identifier the client registered so far (configuration + play)
  * @param probe        probe outcome
  * @param resolvedKeys translation keys the client resolved (the probe reply differed from the key)
+ * @param companion    what the client part reported, if anything
+ * @param reportedMods mod ids from the client part's report; empty unless it reported
  */
-public record Signals(@Nullable String brand, Set<String> channels, ProbeState probe, Set<String> resolvedKeys) {
+public record Signals(@Nullable String brand, Set<String> channels, ProbeState probe, Set<String> resolvedKeys,
+		CompanionState companion, Set<String> reportedMods) {
 	public Signals {
 		channels = Collections.unmodifiableSet(new TreeSet<>(channels));
 		resolvedKeys = Collections.unmodifiableSet(new TreeSet<>(resolvedKeys));
+		reportedMods = Collections.unmodifiableSet(new TreeSet<>(reportedMods));
+	}
+
+	/** A client without the client part. */
+	public Signals(@Nullable String brand, Set<String> channels, ProbeState probe, Set<String> resolvedKeys) {
+		this(brand, channels, probe, resolvedKeys, CompanionState.NONE, Set.of());
 	}
 
 	public static Signals empty() {

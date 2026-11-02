@@ -42,6 +42,19 @@ public final class Rule {
 	public List<String> keybind_keys = new ArrayList<>();
 	/** Fires on these probe outcomes (e.g. BLANKED, NO_REPLY). Forces phase SETTLED. */
 	public List<ProbeState> probe_state = new ArrayList<>();
+	/**
+	 * Client part: at least one reported mod id matches one of these ids or globs ({@code meteor-*}).
+	 * Can fire in the configuration phase, as soon as the report is in.
+	 */
+	public List<String> reported_mods_any = new ArrayList<>();
+	/** Client part: its state is one of these (NONE, REPORTED, TIMEOUT, MISMATCH). Forces phase JOIN at least. */
+	public List<CompanionState> companion_state = new ArrayList<>();
+
+	/**
+	 * Not a condition: the Fabric mod id this rule's probe keys prove (glob allowed). When the keys
+	 * resolve but a client part report leaves the id out, the client is recorded as MISMATCH.
+	 */
+	public @Nullable String mod_id = null;
 
 	// ---- actions ----
 	public List<RuleAction> actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT));
@@ -54,7 +67,8 @@ public final class Rule {
 
 	public boolean hasCondition() {
 		return brand != null || !channels_any.isEmpty() || !channels_all.isEmpty() || !channels_none.isEmpty()
-				|| no_channels || !translation_keys.isEmpty() || !keybind_keys.isEmpty() || !probe_state.isEmpty();
+				|| no_channels || !translation_keys.isEmpty() || !keybind_keys.isEmpty() || !probe_state.isEmpty()
+				|| !reported_mods_any.isEmpty() || !companion_state.isEmpty();
 	}
 
 	/** The phase this rule needs: conditions that depend on late data wait for SETTLED. */
@@ -69,6 +83,10 @@ public final class Rule {
 	private RulePhase minimumPhase() {
 		if (!channels_none.isEmpty() || no_channels || !translation_keys.isEmpty() || !keybind_keys.isEmpty() || !probe_state.isEmpty()) {
 			return RulePhase.SETTLED;
+		}
+		// The client part's state is final only once the configuration phase is over.
+		if (!companion_state.isEmpty()) {
+			return RulePhase.JOIN;
 		}
 		return RulePhase.CONFIGURE;
 	}
@@ -85,6 +103,9 @@ public final class Rule {
 		if (translation_keys == null) translation_keys = new ArrayList<>();
 		if (keybind_keys == null) keybind_keys = new ArrayList<>();
 		if (probe_state == null) probe_state = new ArrayList<>();
+		if (reported_mods_any == null) reported_mods_any = new ArrayList<>();
+		if (companion_state == null) companion_state = new ArrayList<>();
+		if (mod_id != null && mod_id.isBlank()) mod_id = null;
 		if (actions == null) actions = new ArrayList<>();
 		if (commands == null) commands = new ArrayList<>();
 		channels_any.removeIf(s -> s == null || s.isBlank());
@@ -93,6 +114,8 @@ public final class Rule {
 		translation_keys.removeIf(s -> s == null || s.isBlank());
 		keybind_keys.removeIf(s -> s == null || s.isBlank());
 		probe_state.removeIf(s -> s == null);
+		reported_mods_any.removeIf(s -> s == null || s.isBlank());
+		companion_state.removeIf(s -> s == null);
 		actions.removeIf(a -> a == null);
 		commands.removeIf(s -> s == null || s.isBlank());
 		return this;

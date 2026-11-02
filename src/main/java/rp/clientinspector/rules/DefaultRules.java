@@ -1,7 +1,11 @@
 package rp.clientinspector.rules;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * The rules written to config/clientinspector/rules.json on first run. Every translation key below was
@@ -12,6 +16,9 @@ import java.util.List;
  * open/close cycle on the client.
  */
 public final class DefaultRules {
+	/** Bumped when a release adds default rules; config.json's rules_version says which set rules.json has. */
+	public static final int VERSION = 2;
+
 	private DefaultRules() {
 	}
 
@@ -19,30 +26,30 @@ public final class DefaultRules {
 		List<Rule> rules = new ArrayList<>();
 
 		// ---- hack clients and addons caught by the translation-key probe ----
-		Rule meteor = probe("meteor-client", "Meteor Client", RuleCategory.HACK, "high",
+		Rule meteor = probe("meteor-client", "meteor-client", "Meteor Client", RuleCategory.HACK, "high",
 				List.of("key.meteor-client.open-gui", "key.category.meteor-client.meteor-client"),
 				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK, RuleAction.KICK));
 		// Second vector: Meteor registers this as a real key binding, so a keybind component resolves to the bound key.
 		meteor.keybind_keys = new ArrayList<>(List.of("key.meteor-client.open-gui"));
 		rules.add(meteor);
-		rules.add(probe("meteor-plus", "Meteor+ (Meteor addon)", RuleCategory.HACK, "high",
+		rules.add(probe("meteor-plus", "meteorplus", "Meteor+ (Meteor addon)", RuleCategory.HACK, "high",
 				List.of("item.meteorplus.logo"),
 				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK, RuleAction.KICK)));
-		rules.add(probe("meteorist", "Meteorist (Meteor addon)", RuleCategory.HACK, "high",
+		rules.add(probe("meteorist", "meteorist", "Meteorist (Meteor addon)", RuleCategory.HACK, "high",
 				List.of("modmenu.descriptionTranslation.meteorist"),
 				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK, RuleAction.KICK)));
-		rules.add(probe("thunderhack", "ThunderHack", RuleCategory.HACK, "high",
+		rules.add(probe("thunderhack", "thunderhack*", "ThunderHack", RuleCategory.HACK, "high",
 				List.of("descriptions.combat.aura", "descriptions.combat.autocrystal"),
 				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK, RuleAction.KICK)));
 
 		// ---- disallowed utilities caught by the probe (alert + webhook, no kick; promote to KICK if you ban them) ----
-		rules.add(probe("freecam", "Freecam", RuleCategory.DISALLOWED, "high",
+		rules.add(probe("freecam", "*freecam*", "Freecam", RuleCategory.DISALLOWED, "high",
 				List.of("key.freecam.toggle"),
 				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK)));
-		rules.add(probe("seedcrackerx", "SeedcrackerX", RuleCategory.DISALLOWED, "medium",
+		rules.add(probe("seedcrackerx", "seedcracker*", "SeedcrackerX", RuleCategory.DISALLOWED, "medium",
 				List.of("settings.antiXrayMode"),
 				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK)));
-		rules.add(probe("advanced-xray", "Advanced XRay", RuleCategory.DISALLOWED, "medium",
+		rules.add(probe("advanced-xray", "*xray*", "Advanced XRay", RuleCategory.DISALLOWED, "medium",
 				List.of("xray.mod_name"),
 				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK)));
 		Rule xToXray = new Rule();
@@ -51,6 +58,7 @@ public final class DefaultRules {
 		xToXray.category = RuleCategory.DISALLOWED;
 		xToXray.confidence = "medium";
 		xToXray.keybind_keys = new ArrayList<>(List.of("key.xtoxray.toggle")); // no language file; key binding only
+		// No mod_id: its Fabric mod id is unverified, and a wrong one would turn a probe hit into a false MISMATCH.
 		xToXray.actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK));
 		rules.add(xToXray);
 
@@ -134,12 +142,92 @@ public final class DefaultRules {
 		rules.add(legit("replay-mod", "Replay Mod", List.of("replaymod:*")));
 		rules.add(legit("xaeros-maps", "Xaero's Minimap / World Map", List.of("xaerominimap:*", "xaeroworldmap:*")));
 		rules.add(legit("simple-voice-chat", "Simple Voice Chat", List.of("voicechat:*", "vc:*")));
+
+		rules.addAll(clientPartRules());
 		return rules;
 	}
 
-	private static Rule probe(String id, String name, RuleCategory category, String confidence, List<String> keys, List<RuleAction> actions) {
+	/**
+	 * Rules on the client part's report (new in 0.2.0). The mod ids were read from each mod's own
+	 * fabric.mod.json; a report is what Fabric Loader loaded, so OpSec cannot hide anything from it.
+	 */
+	static List<Rule> clientPartRules() {
+		List<Rule> rules = new ArrayList<>();
+		Rule hack = new Rule();
+		hack.id = "reported-hack";
+		hack.name = "Hack client in the reported mod list";
+		hack.category = RuleCategory.HACK;
+		hack.confidence = "high";
+		hack.reported_mods_any = new ArrayList<>(List.of("meteor-client", "meteorplus", "meteorist", "meteor-rejects",
+				"thunderhack*", "wurst", "liquidbounce", "bleachhack", "aoba", "shoreline"));
+		hack.actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK, RuleAction.KICK));
+		hack.kick_message = "Client Inspector: %reported% is not allowed on this server.";
+		rules.add(hack);
+
+		Rule hider = new Rule();
+		hider.id = "reported-hider";
+		hider.name = "Detection hider in the reported mod list";
+		hider.category = RuleCategory.DISALLOWED;
+		hider.confidence = "medium";
+		hider.reported_mods_any = new ArrayList<>(List.of("opsec", "exploitpreventer"));
+		hider.actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK));
+		rules.add(hider);
+
+		Rule disallowed = new Rule();
+		disallowed.id = "reported-disallowed";
+		disallowed.name = "Disallowed utility in the reported mod list";
+		disallowed.category = RuleCategory.DISALLOWED;
+		disallowed.confidence = "high";
+		disallowed.reported_mods_any = new ArrayList<>(List.of("freecam", "xray", "seedcrackerx"));
+		disallowed.actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK));
+		rules.add(disallowed);
+
+		Rule mismatch = new Rule();
+		mismatch.id = "companion-mismatch";
+		mismatch.name = "Client part report contradicts the probe (forged report)";
+		mismatch.category = RuleCategory.SPOOF;
+		mismatch.confidence = "high";
+		mismatch.companion_state = new ArrayList<>(List.of(CompanionState.MISMATCH));
+		mismatch.actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK, RuleAction.KICK));
+		rules.add(mismatch);
+		return rules;
+	}
+
+	/**
+	 * Brings a rules.json written by an older version up to {@link #VERSION}: default probe rules get
+	 * their mod_id when they have none, and default rules added since are appended unless a rule with
+	 * the same id exists. Idempotent; returns a description of each change.
+	 */
+	public static List<String> upgrade(List<Rule> rules, int fromVersion) {
+		List<String> changes = new ArrayList<>();
+		if (fromVersion >= VERSION) {
+			return changes;
+		}
+		Map<String, Rule> byId = new HashMap<>();
+		for (Rule rule : rules) {
+			byId.putIfAbsent(rule.id, rule);
+		}
+		Set<String> added = new HashSet<>();
+		for (Rule rule : clientPartRules()) {
+			added.add(rule.id);
+		}
+		for (Rule fresh : create()) {
+			Rule existing = byId.get(fresh.id);
+			if (existing == null && added.contains(fresh.id)) {
+				rules.add(fresh);
+				changes.add("added " + fresh.id);
+			} else if (existing != null && existing.mod_id == null && fresh.mod_id != null) {
+				existing.mod_id = fresh.mod_id;
+				changes.add(fresh.id + ".mod_id=" + fresh.mod_id);
+			}
+		}
+		return changes;
+	}
+
+	private static Rule probe(String id, String modId, String name, RuleCategory category, String confidence, List<String> keys, List<RuleAction> actions) {
 		Rule rule = new Rule();
 		rule.id = id;
+		rule.mod_id = modId;
 		rule.name = name;
 		rule.category = category;
 		rule.confidence = confidence;

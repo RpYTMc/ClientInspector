@@ -41,12 +41,16 @@ public final class RuleSet {
 		return ClientInspectorConfig.dir().resolve(FILE_NAME);
 	}
 
-	/** Strict load for /clientinspector reload. Duplicate ids are renamed with a numeric suffix and logged. */
-	public static RuleSet loadOrThrow() throws IOException {
+	/**
+	 * Strict load for /clientinspector reload. Duplicate ids are renamed with a numeric suffix and logged.
+	 * A file from an older version gets the default rules added since, once (config.rules_version).
+	 */
+	public static RuleSet loadOrThrow(ClientInspectorConfig config) throws IOException {
 		Path file = path();
 		if (!Files.exists(file)) {
 			RuleSet defaults = new RuleSet(DefaultRules.create());
 			defaults.save();
+			markCurrent(config);
 			return defaults;
 		}
 		List<Rule> parsed;
@@ -81,13 +85,27 @@ public final class RuleSet {
 		for (String bad : RuleMatcher.invalidBrandRegexes(clean)) {
 			ClientInspector.LOGGER.warn("rules.json: rule '{}' has an invalid brand regex and will never match", bad);
 		}
-		return new RuleSet(clean);
+		List<String> changes = DefaultRules.upgrade(clean, config.rules_version);
+		RuleSet loaded = new RuleSet(clean);
+		if (!changes.isEmpty()) {
+			loaded.save();
+			ClientInspector.LOGGER.info("rules.json: brought up to the current default rules: {}", String.join(", ", changes));
+		}
+		markCurrent(config);
+		return loaded;
+	}
+
+	private static void markCurrent(ClientInspectorConfig config) {
+		if (config.rules_version < DefaultRules.VERSION && config.fromFile()) {
+			config.rules_version = DefaultRules.VERSION;
+			config.save();
+		}
 	}
 
 	/** Startup path: never throws; falls back to the built-in defaults without touching the file. */
-	public static RuleSet load() {
+	public static RuleSet load(ClientInspectorConfig config) {
 		try {
-			return loadOrThrow();
+			return loadOrThrow(config);
 		} catch (IOException | RuntimeException e) {
 			ClientInspector.LOGGER.error("Failed to read {} ({}); using built-in default rules. Fix the file and run /clientinspector reload",
 					path(), ClientInspectorConfig.describe(e), e);

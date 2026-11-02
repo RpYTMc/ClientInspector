@@ -43,3 +43,4 @@ replay_*.log
 build-log.txt
 run-log.txt
 gametest-log.txt
+/logs/

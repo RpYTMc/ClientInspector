@@ -4,12 +4,27 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerConnection;
+import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.server.network.ServerPlayerEntity;
+import com.google.gson.GsonBuilder;
 import rp.clientinspector.ClientInspector;
+import rp.clientinspector.ClientInspectorConfig;
+import rp.clientinspector.companion.ReportPayload;
+import rp.clientinspector.companion.ReportedMod;
 import rp.clientinspector.probe.ProbeKey;
+import rp.clientinspector.rules.CompanionState;
+import rp.clientinspector.rules.DefaultRules;
 import rp.clientinspector.rules.ProbeState;
+import rp.clientinspector.rules.Rule;
+import rp.clientinspector.rules.RuleAction;
 import rp.clientinspector.session.ClientSession;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -17,12 +32,26 @@ import java.util.Set;
  * End to end: a real 1.21.11 client joins an in-process dedicated server running Client Inspector. The
  * brand and the Fabric API channels must be captured, the join probe must come back REPLIED with
  * every hack-client key echoed unresolved, and a self-test probe must resolve the vanilla key
- * {@code key.jump} (the client translates it, so the reply differs from the key).
+ * {@code key.jump} (the client translates it, so the reply differs from the key). The client has the
+ * jar too, so the client part must have reported its mod list during the configuration phase.
  */
 public final class ProbeClientGameTest implements FabricClientGameTest {
+	/** The default rules 0.2.0 adds; a 0.1.x rules.json lacks them. */
+	private static final Set<String> CLIENT_PART_RULES = Set.of("reported-hack", "reported-hider", "reported-disallowed", "companion-mismatch");
+
 	@Override
 	public void runTest(ClientGameTestContext context) {
+		int oldRuleCount = writeVersion1Config();
 		try (TestDedicatedServerContext server = context.worldBuilder().createServer()) {
+			// 0. The server upgraded the 0.1.x rules.json in place: the owner's rule stays, the new rules and mod ids arrive.
+			List<Rule> upgraded = server.computeOnServer(s -> ClientInspector.detector().rules().rules());
+			check(upgraded.size() == oldRuleCount + CLIENT_PART_RULES.size(), "expected " + (oldRuleCount + CLIENT_PART_RULES.size())
+					+ " rules after the upgrade, got " + upgraded.size());
+			check(upgraded.stream().anyMatch(r -> r.id.equals("owner-rule")), "the owner's own rule must survive the upgrade");
+			check(upgraded.stream().map(r -> r.id).toList().containsAll(CLIENT_PART_RULES), "the client part rules must be added");
+			check(upgraded.stream().anyMatch(r -> r.id.equals("meteor-client") && "meteor-client".equals(r.mod_id)), "meteor-client must get its mod_id");
+			check(server.computeOnServer(s -> ClientInspector.detector().config().rules_version) == DefaultRules.VERSION, "rules_version must be bumped");
+
 			try (TestServerConnection connection = server.connect()) {
 				connection.getClientWorld().waitForChunksRender();
 
@@ -53,7 +82,25 @@ public final class ProbeClientGameTest implements FabricClientGameTest {
 						"only the Fabric API canary may resolve on a plain client: " + joined.resolvedKeys());
 				check(joined.matchedRules().isEmpty(), "a plain Fabric client must match no rule: " + joined.matchedRules());
 
-				// 2. Self-test probe: the vanilla key must come back translated.
+				// 2. Client part: this client has the jar, so it registered the hello channel and reported its mods
+				// during the configuration phase, before the player existed.
+				Map<String, ReportedMod> reported = joined.reportedMods();
+				ReportPayload report = joined.report();
+				ClientInspector.LOGGER.info("[gametest] companion={} reported={} mods (hashed: {}), loader={}, game={}, truncated={}",
+						joined.companion(), reported.size(), reported.values().stream().filter(m -> m.sha256() != null).count(),
+						report == null ? null : report.loaderVersion(), report == null ? null : report.gameVersion(),
+						report == null ? null : report.truncated());
+				check(channels.contains("clientinspector:hello"), "a client with the jar must register the hello channel: " + channels);
+				check(joined.companion() == CompanionState.REPORTED, "companion should be REPORTED but was " + joined.companion());
+				check(reported.containsKey("clientinspector"), "the report must list clientinspector: " + reported.keySet());
+				check(reported.containsKey("fabric-api"), "the report must list fabric-api: " + reported.keySet());
+				check(reported.containsKey("minecraft"), "the report must list minecraft: " + reported.keySet());
+				check(report != null && "1.21.11".equals(report.gameVersion()), "the report must carry the game version: " + report);
+				check(!report.truncated(), "a dev client's list must not be cut short");
+				check(reported.values().stream().anyMatch(m -> m.sha256() != null), "at least one mod jar must be hashed: " + reported.values());
+				check(joined.mismatchReasons().isEmpty(), "an honest report must not contradict the probe: " + joined.mismatchReasons());
+
+				// 3. Self-test probe: the vanilla key must come back translated.
 				server.runOnServer(s -> {
 					ServerPlayerEntity player = s.getPlayerManager().getPlayerList().get(0);
 					ClientInspector.detector().startProbe(player, session(s), true);
@@ -70,6 +117,41 @@ public final class ProbeClientGameTest implements FabricClientGameTest {
 				check(tested.matchedRules().isEmpty(), "self-test must not match a rule: " + tested.matchedRules());
 			}
 		}
+
+		// 4. Singleplayer: a player who installed the jar for the client part is never inspected in their own world.
+		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
+			singleplayer.getClientWorld().waitForChunksRender();
+			context.waitTicks(40);
+			Boolean quiet = singleplayer.getServer().computeOnServer(s -> ClientInspector.detector().sessions().size() == 0
+					&& s.getCommandManager().getDispatcher().getRoot().getChild("clientinspector") == null);
+			check(Boolean.TRUE.equals(quiet), "the integrated server must track no session and register no /clientinspector command");
+		}
+	}
+
+	/**
+	 * Loom wipes the game test run folder every run, so write config files as 0.1.x left them: the
+	 * default rules without the client part rules and without mod_id, an owner's own rule, and a
+	 * config.json without rules_version. Returns the number of rules written.
+	 */
+	private static int writeVersion1Config() {
+		List<Rule> rules = DefaultRules.create();
+		rules.removeIf(r -> CLIENT_PART_RULES.contains(r.id));
+		rules.forEach(r -> r.mod_id = null);
+		Rule own = new Rule();
+		own.id = "owner-rule";
+		own.name = "Owner rule";
+		own.brand = "^never-sent$";
+		own.actions = new ArrayList<>(List.of(RuleAction.LOG));
+		rules.add(own);
+		Path dir = ClientInspectorConfig.dir();
+		try {
+			Files.createDirectories(dir);
+			Files.writeString(dir.resolve("rules.json"), new GsonBuilder().setPrettyPrinting().create().toJson(rules));
+			Files.writeString(dir.resolve("config.json"), "{\"monitor_only\": false}");
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+		return rules.size();
 	}
 
 	private interface ServerCheck {

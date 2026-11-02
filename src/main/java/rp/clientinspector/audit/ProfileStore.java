@@ -6,6 +6,7 @@ import com.google.gson.reflect.TypeToken;
 import org.jspecify.annotations.Nullable;
 import rp.clientinspector.ClientInspector;
 import rp.clientinspector.ClientInspectorConfig;
+import rp.clientinspector.companion.ReportedMod;
 import rp.clientinspector.session.ClientSession;
 
 import java.io.IOException;
@@ -52,6 +53,18 @@ public final class ProfileStore {
 		public String probe = "NOT_RUN";
 		public Map<String, String> probe_replies = new TreeMap<>();
 		public List<String> matched_rules = new ArrayList<>();
+		/** NONE, REPORTED, TIMEOUT or MISMATCH: what the client part said on the last join. */
+		public String companion = "NONE";
+		public List<ReportedEntry> reported_mods = new ArrayList<>();
+		/** Why the report was not trusted (MISMATCH only). */
+		public List<String> companion_mismatch = new ArrayList<>();
+	}
+
+	public static final class ReportedEntry {
+		public String id = "";
+		public String version = "";
+		public @Nullable String sha256 = null;
+		public boolean nested = false;
 	}
 
 	private Data data = new Data();
@@ -89,6 +102,17 @@ public final class ProfileStore {
 		p.probe = session.probe().name();
 		p.probe_replies = new TreeMap<>(session.probeReplies());
 		p.matched_rules = new ArrayList<>(session.matchedRules());
+		p.companion = session.companion().name();
+		p.companion_mismatch = new ArrayList<>(session.mismatchReasons());
+		p.reported_mods = new ArrayList<>();
+		for (ReportedMod mod : session.reportedMods().values()) {
+			ReportedEntry entry = new ReportedEntry();
+			entry.id = mod.id();
+			entry.version = mod.version();
+			entry.sha256 = mod.sha256();
+			entry.nested = mod.nested();
+			p.reported_mods.add(entry);
+		}
 		trim(maxProfiles);
 		dirty = true;
 	}

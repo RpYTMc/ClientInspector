@@ -2,7 +2,9 @@
 
 Server-side Fabric mod for Minecraft 1.21.11 that fingerprints every joining client and alerts,
 kicks or bans by rules you control. **Nothing is required on the client.** Vanilla players can
-join; modded players are inspected on the way in.
+join; modded players are inspected on the way in. Players who also put the same jar in their
+client report their full mod list while joining (the optional [client part](#client-part-optional)),
+and a server can make that mandatory.
 
 It answers one question Grim and the other behaviour anticheats do not: *what client is this
 player actually running?*
@@ -58,9 +60,58 @@ What it does **not** catch, so you are not surprised:
 - The limit of that trick: OpSec's default AUTO mode whitelists every mod that registers channels,
   which is exactly the evidence the canaries rely on, so its users resolve the canaries and still
   hide Meteor. Canaries catch ExploitPreventer and OpSec's manual whitelist mode, not OpSec AUTO.
-  Nothing passive beats a hider configured that way; a mandatory companion mod does.
+  Nothing passive beats a hider configured that way. The client part does, for players who
+  install it.
 - A player can always recompile a client to lie. Client Inspector stops the unsuspecting, not the determined.
   Keep Grim for behaviour.
+
+## Client part (optional)
+
+The same jar also works on the client. A player who puts it in their client's `mods/` folder, next
+to Fabric API, reports their mod list to the server while joining: every mod Fabric Loader loaded,
+with its version and the SHA-256 of its jar. The list comes from Fabric Loader itself, so OpSec and
+the other translation filters cannot hide anything from it. Meteor behind OpSec AUTO, invisible to
+the probe, shows up as `meteor-client` in the report, and the `reported-hack` rule kicks it before
+the world loads.
+
+How it works:
+
+- During the configuration phase the server sends `clientinspector:hello` to clients that registered
+  that channel, which only clients with the jar do. The client answers with `clientinspector:report`.
+  Clients without the jar are not asked and not held up.
+- The client hashes its mod jars once at startup in a background thread, so the answer is instant.
+  It writes one log line and has no settings or screens. On a server without Client Inspector it
+  sends nothing.
+- The server cross-checks the report against what it saw itself. A report that leaves out a mod the
+  probe just proved, or leaves out Fabric API while the client registers Fabric channels (the jar
+  depends on Fabric API), was not written by an honest client part: the client is marked `MISMATCH`
+  and the `companion-mismatch` rule kicks.
+- Players who install the jar are never inspected in their own singleplayer or LAN worlds. The
+  server half only runs on dedicated servers, and the client writes no config files.
+
+Modes (`companion.mode` in the config, or `/clientinspector companion <mode>`):
+
+| Mode | What happens |
+|---|---|
+| `off` | Nobody is asked for a report |
+| `optional` (default) | Clients with the jar report; everyone may join |
+| `required` | Clients without the jar, or whose report does not arrive within `companion.timeout_ticks`, are refused before they reach the world. The refusal screen shows `companion.kick_message` with `companion.download_url` |
+
+In `required` mode operators and `clientinspector.bypass` holders may join without the jar while
+`companion.exempt_bypass` is on, and Geyser players (`probe.skip_brands`) always may.
+
+What it cannot do:
+
+- In `optional` mode it only covers players who chose to install it, and a cheater simply does
+  not. `required` is the only mode that affects players who refuse to install it.
+- `required` also refuses vanilla, Lunar, Forge and every other client that cannot load a Fabric
+  mod. That suits a private Fabric server whose players you know, not a public one.
+- The report is put together by the client, and a modified copy of the client part can send any
+  list it likes. The cross-check catches a forged list only when the probe can see the hidden mod;
+  someone who patches the client part and also hides from the probe gets through. Treat it as a
+  strong deterrent among people you know, not as proof.
+- Jar hashes are reported and stored in `profiles.json` so you can compare jars; no rule condition
+  uses them yet.
 
 ## Install
 
@@ -72,13 +123,20 @@ What it does **not** catch, so you are not surprised:
 Optional: set `monitor_only` to `true` for the first days. Every kick and ban is then reported as
 "not enforced: monitor_only" so you can read the alerts before letting it act.
 
+For the client part, players put the same jar in their client's `mods/` folder next to Fabric API.
+Nothing else to set up; `optional` mode is on by default.
+
+Upgrading from 0.1.x: replace the jar and restart. On the first start `rules.json` gets the new
+default rules and the `mod_id` of the probe rules once; rules you edited or added stay as they are.
+
 ## Commands (`clientinspector.admin`)
 
 | Command | What it does |
 |---|---|
 | `/clientinspector` | Rule count, probe state, tracked connections. `/ci` is a short alias for every subcommand |
-| `/clientinspector online` | One line per connected player: brand, channel count, probe result, matches |
-| `/clientinspector profile <name>` | Everything observed for an online player, or the stored profile of an offline one |
+| `/clientinspector online` | One line per connected player: brand, channel count, probe result, matches, and `[client part: N mods]` when it reported |
+| `/clientinspector profile <name>` | Everything observed for an online player, or the stored profile of an offline one, including the reported mod list |
+| `/clientinspector companion [off\|optional\|required]` | Show the client part mode, or set it and save `config.json` (applies from the next join) |
 | `/clientinspector probe <player>` | Re-run the probe now |
 | `/clientinspector probe <player> selftest` | Same, plus a vanilla key (`key.jump`) that every client resolves: proves the probe works on your server |
 | `/clientinspector rules` | List the loaded rules with category, confidence and actions |
@@ -119,13 +177,27 @@ Conditions:
 | `translation_keys` | at least one key resolved in the probe (waits for SETTLED) |
 | `keybind_keys` | at least one key-binding id resolved in the probe; OR-ed with `translation_keys` |
 | `probe_state` | list of `REPLIED`, `FILTERED`, `BLANKED`, `NO_REPLY`, `NOT_RUN` |
+| `reported_mods_any` | client part: at least one reported mod id matches one of these ids or globs (`meteor-*`); can fire while the client is still configuring |
+| `companion_state` | client part: list of `NONE`, `REPORTED`, `TIMEOUT`, `MISMATCH` (waits for JOIN) |
 | `phase` | optional: delay the rule to `JOIN` or `SETTLED` |
 
 Channel patterns: `lunar` (any `lunar:*`), `lunar:apollo` (exact), `fabric-*:*` (glob).
 
+`mod_id` (optional, not a condition) names the Fabric mod a probe rule proves, as an id or glob.
+When the rule's keys resolve but the client part's report does not list a matching id, the
+client is marked `MISMATCH`. Leave it out when you are not sure of the id: a wrong one turns an
+honest report into a mismatch.
+
 Actions: `LOG`, `ALERT`, `WEBHOOK`, `COMMAND` (runs `commands` from the console), `BAN` (vanilla
 ban list, source `ban_source`), `KICK`. Placeholders in messages and commands: `%player%`,
-`%uuid%`, `%rule%`, `%client%`, `%brand%`, `%confidence%`, `%category%`.
+`%uuid%`, `%rule%`, `%client%`, `%brand%`, `%reported%` (the reported mod ids that matched
+`reported_mods_any`), `%confidence%`, `%category%`.
+
+Client part rules shipped by default: `reported-hack` (Meteor Client, Meteor Rejects, Meteor+,
+Meteorist, ThunderHack, Wurst, LiquidBounce, BleachHack, Aoba, Shoreline; kick),
+`reported-hider` (OpSec, ExploitPreventer; alert), `reported-disallowed` (Freecam, Advanced XRay,
+SeedcrackerX; alert) and `companion-mismatch` (kick). The mod ids were read from each mod's own
+`fabric.mod.json`.
 
 Categories: `HACK`, `SPOOF`, `DISALLOWED`, `LEGIT`, `INFO`. The defaults kick only on
 high-confidence `HACK` and `SPOOF` matches; everything else alerts.
@@ -144,6 +216,12 @@ high-confidence `HACK` and `SPOOF` matches; everything else alerts.
   marks the probe `FILTERED`.
 - `probe.recheck_minutes`: re-probe online players periodically (0 = only on join).
 - `probe.y_offset`: where the invisible sign is placed relative to the player (default 5 blocks below).
+- `companion.mode`: `off`, `optional` (default) or `required`; see [Client part](#client-part-optional).
+- `companion.download_url`: where players get the jar (default the Modrinth page), shown as `%url%`.
+- `companion.kick_message`: the refusal screen in `required` mode; placeholders `%url%`, `%player%`.
+- `companion.timeout_ticks`: how long a client with the jar may take to report (default 100 = 5 s).
+- `companion.exempt_bypass`: operators and bypass holders may join without the jar (default `true`).
+- `rules_version`: which default rules `rules.json` has been brought up to. Leave it alone.
 - `alerts.webhook_url`: Discord webhook for the `WEBHOOK` action.
 - `alerts.unknown_namespaces`: also alert when a client registers channels from namespaces not in
   `known_namespaces` and not covered by any rule. Good for discovering what your players run.
@@ -163,9 +241,16 @@ high-confidence `HACK` and `SPOOF` matches; everything else alerts.
    cut with the kick message a few seconds after the world loads.
 5. Have everyone else join once. Anything with `(spoof` or `(info` in the alert is worth a look at
    `/clientinspector profile <name>` before you promote any rule to `KICK`.
+6. Client part: put the jar in the Meteor instance's `mods/` folder too and join on the non-op
+   account. The kick now comes from `reported-hack` within a second of joining, before the probe,
+   and `/clientinspector profile <name>` lists `meteor-client` under the client part.
+7. Required mode: run `/clientinspector companion required`, remove the jar from that instance and
+   join again. The join is refused with the download message.
 
-The automated equivalent of step 2 is `./gradlew runClientGameTest`: it starts an in-process server,
-joins it with a real client, and asserts that every hack key echoes unresolved while `key.jump` resolves.
+The automated equivalent of steps 2 and 6 is `./gradlew runClientGameTest`: it starts an in-process
+server from a 0.1.x config (which must be upgraded in place), joins it with a real client that has
+the jar, and asserts that every hack key echoes unresolved, `key.jump` resolves, and the client
+part reported its mods. It ends with a singleplayer world, where nothing may be inspected.
 
 ## Where the fingerprints come from
 
@@ -179,8 +264,10 @@ configuration from other anticheats is included.
 ./gradlew build
 ```
 
-Java 21, Fabric Loom. The jar is in `build/libs/`. Unit tests cover the rule matcher, channel
-patterns, brand normalisation and the probe evaluation.
+Java 21, Fabric Loom. The jar is in `build/libs/`; one jar serves both the server and the client
+part. Unit tests cover the rule matcher, channel patterns, brand normalisation, the probe
+evaluation, the client part's wire format and size cap, the cross-check, the required-mode
+decisions and the `rules.json` upgrade.
 
 ## License
 

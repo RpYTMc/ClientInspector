@@ -3,6 +3,7 @@ package rp.clientinspector;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSyntaxException;
+import com.google.gson.annotations.SerializedName;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -13,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * config/clientinspector/config.json. Unknown fields are ignored by Gson; missing fields keep the defaults
@@ -26,11 +28,19 @@ public final class ClientInspectorConfig {
 	/** When true, KICK and BAN are downgraded to alerts; everything else runs. Good for the first days. */
 	public boolean monitor_only = false;
 	public Probe probe = new Probe();
+	public Companion companion = new Companion();
 	public Alerts alerts = new Alerts();
 	public Audit audit = new Audit();
 	public Messages messages = new Messages();
 	/** Source name written into banned-players.json for bans issued by Client Inspector. */
 	public String ban_source = "Client Inspector";
+	/**
+	 * Which default-rule set rules.json has been brought up to. When a new version ships new default
+	 * rules they are added to rules.json once and this number goes up; leave it alone.
+	 */
+	public int rules_version = 0;
+	/** True when this object came from (or was just written to) config.json; only then is it saved back. */
+	private transient boolean fromFile;
 	/**
 	 * Channel namespaces never reported as "unknown mod" in alerts or profiles. Rule pattern syntax
 	 * (namespace, ns:*, globs). Fabric API's own channels are always known.
@@ -91,6 +101,39 @@ public final class ClientInspectorConfig {
 		}
 	}
 
+	/** The client part: players who install the same jar on their client report their mod list on join. */
+	public static final class Companion {
+		/**
+		 * off: never ask; optional: ask clients that have the jar, let everyone in; required: refuse
+		 * clients without the jar (or whose report never came) before they reach the world.
+		 */
+		public CompanionMode mode = CompanionMode.OPTIONAL;
+		/** Where players get the jar; sent to the client in the hello and shown as %url% in kick_message. */
+		public String download_url = "https://modrinth.com/mod/client-inspector";
+		/** Refusal screen in required mode. Placeholders: %url% %player%. */
+		public String kick_message = DEFAULT_COMPANION_KICK;
+		/** Ticks to wait for the report of a client that has the jar before recording TIMEOUT. */
+		public int timeout_ticks = 100;
+		/** Operators and clientinspector.bypass holders may join without the jar in required mode. */
+		public boolean exempt_bypass = true;
+	}
+
+	public static final String DEFAULT_COMPANION_KICK = "This server requires Client Inspector on your client.\n\n"
+			+ "Download it from %url%\nand put it in your mods folder next to Fabric API, then join again.";
+
+	public enum CompanionMode {
+		@SerializedName("off")
+		OFF,
+		@SerializedName("optional")
+		OPTIONAL,
+		@SerializedName("required")
+		REQUIRED;
+
+		public String id() {
+			return name().toLowerCase(Locale.ROOT);
+		}
+	}
+
 	public static final class Alerts {
 		public boolean in_game = true;
 		public boolean console = true;
@@ -119,6 +162,7 @@ public final class ClientInspectorConfig {
 
 	private ClientInspectorConfig sanitize() {
 		if (probe == null) probe = new Probe();
+		if (companion == null) companion = new Companion();
 		if (alerts == null) alerts = new Alerts();
 		if (audit == null) audit = new Audit();
 		if (messages == null) messages = new Messages();
@@ -134,6 +178,11 @@ public final class ClientInspectorConfig {
 		probe.skip_brands.removeIf(s -> s == null || s.isBlank());
 		if (probe.canaries == null) probe.canaries = new ArrayList<>();
 		probe.canaries.removeIf(c -> c == null || c.key == null || c.key.isBlank() || c.channels_any == null || c.channels_any.isEmpty());
+		if (companion.mode == null) companion.mode = CompanionMode.OPTIONAL;
+		if (companion.download_url == null) companion.download_url = "";
+		if (companion.kick_message == null || companion.kick_message.isBlank()) companion.kick_message = DEFAULT_COMPANION_KICK;
+		companion.timeout_ticks = Math.max(20, companion.timeout_ticks);
+		rules_version = Math.max(0, rules_version);
 		if (alerts.webhook_url == null) alerts.webhook_url = "";
 		alerts.cooldown_seconds = Math.max(0, alerts.cooldown_seconds);
 		audit.max_profiles = Math.max(10, audit.max_profiles);
@@ -156,6 +205,7 @@ public final class ClientInspectorConfig {
 		Path file = path();
 		if (!Files.exists(file)) {
 			ClientInspectorConfig defaults = new ClientInspectorConfig();
+			defaults.fromFile = true;
 			defaults.save();
 			return defaults;
 		}
@@ -164,10 +214,16 @@ public final class ClientInspectorConfig {
 			if (cfg == null) {
 				throw new JsonSyntaxException("file is empty (delete it to regenerate defaults)");
 			}
+			cfg.fromFile = true;
 			cfg.sanitize();
 			cfg.save();
 			return cfg;
 		}
+	}
+
+	/** False for the in-memory defaults used when config.json could not be read; those are never saved. */
+	public boolean fromFile() {
+		return fromFile;
 	}
 
 	/** Startup path: never throws, falls back to defaults and leaves the broken file untouched. */

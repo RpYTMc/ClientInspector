@@ -18,11 +18,16 @@ import rp.clientinspector.PermissionGate;
 import rp.clientinspector.action.ActionExecutor;
 import rp.clientinspector.action.Placeholders;
 import rp.clientinspector.audit.ProfileStore;
+import rp.clientinspector.companion.CompanionCheck;
+import rp.clientinspector.companion.CompanionPolicy;
+import rp.clientinspector.companion.CompanionServer;
+import rp.clientinspector.companion.ReportPayload;
 import rp.clientinspector.mixin.ServerCommonNetworkHandlerAccessor;
 import rp.clientinspector.probe.CanaryCheck;
 import rp.clientinspector.probe.ProbeKey;
 import rp.clientinspector.probe.ProbeRunner;
 import rp.clientinspector.rules.ChannelPattern;
+import rp.clientinspector.rules.CompanionState;
 import rp.clientinspector.rules.ProbeState;
 import rp.clientinspector.rules.Rule;
 import rp.clientinspector.rules.RuleAction;
@@ -65,17 +70,27 @@ public final class Detector {
 	private final ProfileStore profiles;
 	private final TickScheduler scheduler = new TickScheduler();
 	private final Random random = new Random();
+	private final CompanionServer companion;
+	private final boolean loadConfigOnStart;
 	private volatile ProbeRunner probe;
 	private volatile @Nullable MinecraftServer server;
+	/** True while an integrated (singleplayer or LAN) server runs: client installs never inspect those. */
+	private volatile boolean dormant;
 	private int lastRecheckTick = 0;
 	private int lastProfileSaveTick = 0;
 
-	public Detector(ClientInspectorConfig config, RuleSet rules, ProfileStore profiles, ProbeRunner probe) {
+	/**
+	 * @param loadConfigOnStart read the config files when a dedicated server starts instead of now
+	 *                          (client installs, where only the client game test starts one)
+	 */
+	public Detector(ClientInspectorConfig config, RuleSet rules, ProfileStore profiles, ProbeRunner probe, boolean loadConfigOnStart) {
 		this.config = config;
 		this.rules = rules;
 		this.profiles = profiles;
 		this.probe = probe;
+		this.loadConfigOnStart = loadConfigOnStart;
 		this.actions = new ActionExecutor(() -> this.config, profiles);
+		this.companion = new CompanionServer(() -> this.config, scheduler, this::onCompanionResult);
 	}
 
 	public ClientInspectorConfig config() {
@@ -110,6 +125,15 @@ public final class Detector {
 	// ------------------------------------------------------------------ lifecycle
 
 	public void onServerStarted(MinecraftServer server) {
+		dormant = !server.isDedicated();
+		if (dormant) {
+			return;
+		}
+		if (loadConfigOnStart) {
+			ClientInspectorConfig loaded = ClientInspectorConfig.load();
+			reload(loaded, RuleSet.load(loaded));
+			ClientInspector.logInitialised(config, rules);
+		}
 		this.server = server;
 		profiles.load();
 	}
@@ -157,7 +181,7 @@ public final class Detector {
 
 	/** Netty thread. First custom payload of the configuration phase; some clients re-send a brand during play. */
 	public void onBrand(ClientConnection connection, String brand) {
-		if (!connection.isOpen()) {
+		if (dormant || !connection.isOpen()) {
 			return;
 		}
 		// The brand arrives before BEFORE_CONFIGURE; a placeholder session holds it until the profile is known.
@@ -167,6 +191,9 @@ public final class Detector {
 
 	/** Netty thread. */
 	public void onBeforeConfigure(ServerConfigurationNetworkHandler handler, MinecraftServer server) {
+		if (dormant) {
+			return;
+		}
 		ClientConnection connection = connection(handler);
 		GameProfile profile = handler.getDebugProfile();
 		ClientSession session = sessions.getOrCreate(connection, profile.id(), profile.name(), address(connection));
@@ -189,7 +216,7 @@ public final class Detector {
 	/** Server thread (Fabric schedules the event); the client's configuration-phase channel list. */
 	public void onConfigChannels(ServerConfigurationNetworkHandler handler, List<Identifier> channels) {
 		ClientConnection connection = connection(handler);
-		if (!handler.isConnectionOpen()) {
+		if (dormant || !handler.isConnectionOpen()) {
 			return;
 		}
 		ClientSession session = sessions.getOrCreate(connection, ClientSession.PLACEHOLDER_UUID, "?", address(connection));
@@ -200,18 +227,74 @@ public final class Detector {
 		}
 	}
 
-	/** Netty thread. Brand and configuration channels are both known here; kick before the player exists. */
+	/**
+	 * Netty thread. Brand and configuration channels are both known here; kick before the player exists.
+	 * A client with the jar then gets the client part's report task.
+	 */
 	public void onConfigure(ServerConfigurationNetworkHandler handler, MinecraftServer server) {
-		ClientSession session = sessions.get(connection(handler));
+		if (dormant) {
+			return;
+		}
+		ClientConnection connection = connection(handler);
+		ClientSession session = sessions.get(connection);
 		if (session == null || session.isPlaceholder()) {
 			return;
 		}
 		resolveBypass(session);
 		evaluate(session, text -> handler.disconnect(text));
+		if (!session.kicked() && !companion.start(handler, connection, session, server)) {
+			requireClientPart(session, text -> handler.disconnect(text));
+		}
+	}
+
+	/** Netty thread; the client part's answer to the hello. */
+	public void onReport(ServerConfigurationNetworkHandler handler, ReportPayload report, MinecraftServer server) {
+		if (dormant) {
+			return;
+		}
+		companion.onReport(connection(handler), report, server);
+	}
+
+	/** Server thread; the report arrived (or timed out) while the client is still in the configuration phase. */
+	private void onCompanionResult(ServerConfigurationNetworkHandler handler, ClientSession session) {
+		resolveBypass(session);
+		ReportPayload report = session.report();
+		if (session.companion() == CompanionState.REPORTED && report != null && !report.truncated()) {
+			List<String> reasons = CompanionCheck.fabricApiContradiction(session.channels(), session.reportedMods().keySet(), matcher);
+			if (!reasons.isEmpty()) {
+				session.markMismatch(reasons);
+				ClientInspector.LOGGER.warn("{}: client part report does not add up: {}", session.name(), reasons);
+			}
+		}
+		if (session.companion() == CompanionState.TIMEOUT) {
+			requireClientPart(session, text -> handler.disconnect(text));
+		}
+		evaluate(session, text -> handler.disconnect(text));
+	}
+
+	/** Required mode: refuse a client without a report, or note that the decision waits for the bypass lookup. */
+	private void requireClientPart(ClientSession session, Consumer<Text> kick) {
+		CompanionPolicy.Outcome outcome = CompanionPolicy.enforce(config, session, skipProbe(session), kick);
+		session.setRequiredCheckPending(outcome == CompanionPolicy.Outcome.WAITING);
+	}
+
+	/** After the probe: a report that leaves out a mod the probe just proved was forged. */
+	private void crossCheck(ClientSession session) {
+		ReportPayload report = session.report();
+		if (report == null || report.truncated()) {
+			return;
+		}
+		List<String> reasons = CompanionCheck.probeContradictions(rules.rules(), session.resolvedKeys(), session.reportedMods().keySet(), matcher);
+		if (!reasons.isEmpty()) {
+			session.markMismatch(reasons);
+			ClientInspector.LOGGER.warn("{}: client part report contradicts the probe: {}", session.name(), reasons);
+		}
 	}
 
 	public void onConfigDisconnect(ServerConfigurationNetworkHandler handler) {
-		ClientSession session = sessions.remove(connection(handler));
+		ClientConnection connection = connection(handler);
+		companion.forget(connection);
+		ClientSession session = sessions.remove(connection);
 		if (session != null) {
 			probe.forget(session);
 		}
@@ -222,7 +305,7 @@ public final class Detector {
 	public void onJoin(ServerPlayNetworkHandler handler, MinecraftServer server) {
 		ClientConnection connection = connection(handler);
 		ServerPlayerEntity player = handler.player;
-		if (!connection.isOpen()) {
+		if (dormant || !connection.isOpen()) {
 			return;
 		}
 		ClientSession session = sessions.getOrCreate(connection, player.getUuid(), player.getName().getString(), address(connection));
@@ -235,6 +318,9 @@ public final class Detector {
 		resolveBypass(session);
 		if (!session.bypassResolved() || !session.bypass()) {
 			session.setBypass(PermissionGate.hasBypass(player));
+		}
+		if (session.requiredCheckPending()) {
+			requireClientPart(session, text -> player.networkHandler.disconnect(text));
 		}
 		try {
 			session.addPlayChannels(ids(ServerPlayNetworking.getSendable(handler)));
@@ -407,6 +493,7 @@ public final class Detector {
 		}
 		session.setProbe(state);
 		session.advance(RulePhase.SETTLED);
+		crossCheck(session);
 		if (srv == null) {
 			return;
 		}
@@ -422,10 +509,10 @@ public final class Detector {
 		MinecraftServer srv = server;
 		List<String> unknown = unknownNamespaces(session);
 		if (config.audit.log_joins) {
-			ClientInspector.LOGGER.info("{} ({}) brand='{}' loader={} channels={} {} probe={} resolved={} matched={} unknown={}{}",
+			ClientInspector.LOGGER.info("{} ({}) brand='{}' loader={} channels={} {} probe={} resolved={} companion={} reported={} matched={} unknown={}{}",
 					session.name(), session.uuid(), Placeholders.displayBrand(session.brand()), BrandNormalizer.loader(session.brand()),
 					session.channels().size(), session.channels(), session.probe(), session.resolvedKeys(),
-					session.matchedRules(), unknown,
+					session.companion(), session.reportedMods().size(), session.matchedRules(), unknown,
 					session.laterBrand() == null ? "" : " laterBrand='" + Placeholders.displayBrand(session.laterBrand()) + "'");
 		}
 		if (srv != null && config.alerts.unknown_namespaces && !unknown.isEmpty() && config.alerts.in_game) {
@@ -452,7 +539,8 @@ public final class Detector {
 			rulePatterns.addAll(rule.channels_all);
 		}
 		for (String channel : session.channels()) {
-			if (matcher.matchesAnyPattern(known, channel) || matcher.matchesAnyPattern(rulePatterns, channel)) {
+			if (matcher.matchesAnyPattern(known, channel) || matcher.matchesAnyPattern(rulePatterns, channel)
+					|| ChannelPattern.namespace(channel).equals(ClientInspector.MOD_ID)) {
 				continue;
 			}
 			out.add(ChannelPattern.namespace(channel));

@@ -46,7 +46,8 @@ public final class ClientInspectorConfig {
 			"inventoryprofilesnext", "simple-voice-chat", "controlify",
 			"balm", "distant_horizons", "forgeconfigapiport", "fzzy_config", "itemswapper",
 			"libjf-config-network-v0", "pickupnotifier", "puzzleslib", "shulkerboxtooltip", "speedrunigt",
-			"supermartijn642configlib", "whereisit", "xaerolib"));
+			"supermartijn642configlib", "whereisit", "xaerolib",
+			"forge", "neoforge", "collective", "maceattackassistance"));
 
 	public static final class Probe {
 		/** Run the translation-key sign probe on every join. */

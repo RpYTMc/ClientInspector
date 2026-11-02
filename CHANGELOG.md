@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 - 2026-11-02
+
+- `forge`, `neoforge`, `collective` and `maceattackassistance` join the default known namespaces, so a
+  Forge client or a Collective-based mod no longer shows up as unknown in alerts and profiles.
+- Rules whose only action is LOG (the LEGIT entries) write an INFO line ending in "logged" instead of a
+  WARN line ending in "alert only".
+- A suppressed kick or ban reads "not enforced: bypass (op or permission)" or "not enforced: monitor_only".
+
 ## 0.1.0 - 2026-11-02
 
 First version.

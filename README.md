@@ -70,7 +70,7 @@ What it does **not** catch, so you are not surprised:
 4. Give your staff `clientinspector.alerts` (op level 2 by default) and yourself `clientinspector.admin`.
 
 Optional: set `monitor_only` to `true` for the first days. Every kick and ban is then reported as
-"not enforced (monitor_only)" so you can read the alerts before letting it act.
+"not enforced: monitor_only" so you can read the alerts before letting it act.
 
 ## Commands (`clientinspector.admin`)
 
@@ -157,7 +157,7 @@ high-confidence `HACK` and `SPOOF` matches; everything else alerts.
    in your language). That proves the sign probe works end to end on your setup.
 3. Join with a throwaway instance that has Meteor installed, on an account that is **not** an
    operator (operators are exempt from kicks and bans). The log and every player with
-   `clientinspector.alerts` get a `Meteor Client (hack, high)` alert marked "not enforced (monitor_only)",
+   `clientinspector.alerts` get a `Meteor Client (hack, high)` alert marked "not enforced: monitor_only",
    and the profile shows `key.meteor-client.open-gui -> 'Open GUI'`.
 4. Set `monitor_only` back to `false`, reload, and join with the Meteor instance again: the join is
    cut with the kick message a few seconds after the world loads.

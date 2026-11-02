@@ -136,18 +136,32 @@ public final class ActionExecutor {
 		}
 	}
 
-	private static String outcome(boolean enforced, boolean ban, String suppressed) {
+	private static String outcome(Rule rule, boolean enforced, boolean ban, String suppressed) {
 		if (enforced) {
 			return ban ? "BANNED" : "KICKED";
 		}
-		return suppressed != null ? "not enforced (" + suppressed + ")" : "alert only";
+		if (suppressed != null) {
+			return "not enforced: " + suppressed;
+		}
+		return logOnly(rule) ? "logged" : "alert only";
 	}
 
+	/** True for rules whose only action is LOG (the LEGIT entries): nobody is alerted, nothing is enforced. */
+	private static boolean logOnly(Rule rule) {
+		return rule.actions.stream().allMatch(a -> a == RuleAction.LOG);
+	}
+
+	private static final String MATCH_LINE = "{} ({}) matched rule '{}' [{} {}, {}]: brand='{}', channels={}, resolved={} -> {}";
+
 	private void log(ClientSession session, Rule rule, boolean enforced, boolean ban, String suppressed) {
-		ClientInspector.LOGGER.warn("{} ({}) matched rule '{}' [{} {}, {}]: brand='{}', channels={}, resolved={} -> {}",
-				session.name(), session.uuid(), rule.id, rule.category, rule.name, rule.confidence,
+		Object[] args = {session.name(), session.uuid(), rule.id, rule.category, rule.name, rule.confidence,
 				Placeholders.displayBrand(session.brand()), session.channels().size(), session.resolvedKeys(),
-				outcome(enforced, ban, suppressed));
+				outcome(rule, enforced, ban, suppressed)};
+		if (rule.category == RuleCategory.LEGIT || logOnly(rule)) {
+			ClientInspector.LOGGER.info(MATCH_LINE, args);
+		} else {
+			ClientInspector.LOGGER.warn(MATCH_LINE, args);
+		}
 	}
 
 	private void alert(MinecraftServer server, ClientSession session, Rule rule, ClientInspectorConfig cfg,
@@ -159,7 +173,7 @@ public final class ActionExecutor {
 				.append(Text.literal(rule.name).formatted(colour))
 				.append(Text.literal(" (" + rule.category.name().toLowerCase() + ", " + rule.confidence + ")").formatted(Formatting.GRAY))
 				.append(Text.literal(" brand=" + Placeholders.displayBrand(session.brand())).formatted(Formatting.GRAY))
-				.append(Text.literal(" " + outcome(enforced, ban, suppressed)).formatted(enforced ? Formatting.RED : Formatting.YELLOW));
+				.append(Text.literal(" " + outcome(rule, enforced, ban, suppressed)).formatted(enforced ? Formatting.RED : Formatting.YELLOW));
 		for (ServerPlayerEntity staff : server.getPlayerManager().getPlayerList()) {
 			if (PermissionGate.canSeeAlerts(staff) && !profiles.alertsMuted(staff.getUuid())) {
 				staff.sendMessage(text);
@@ -174,7 +188,7 @@ public final class ActionExecutor {
 		fields.add(new DiscordWebhook.Field("Confidence", rule.confidence, true));
 		fields.add(new DiscordWebhook.Field("Brand", "`" + Placeholders.displayBrand(session.brand()).replace("`", "'") + "`", true));
 		fields.add(new DiscordWebhook.Field("Loader", BrandNormalizer.loader(session.brand()), true));
-		fields.add(new DiscordWebhook.Field("Outcome", outcome(enforced, ban, suppressed), true));
+		fields.add(new DiscordWebhook.Field("Outcome", outcome(rule, enforced, ban, suppressed), true));
 		if (!session.resolvedKeys().isEmpty()) {
 			fields.add(new DiscordWebhook.Field("Resolved keys", clip(String.join(", ", session.resolvedKeys()), 1000), false));
 		}

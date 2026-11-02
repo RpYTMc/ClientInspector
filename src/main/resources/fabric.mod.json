@@ -1,0 +1,31 @@
+{
+	"schemaVersion": 1,
+	"id": "doorman",
+	"version": "${version}",
+	"name": "Doorman",
+	"description": "Server-side client fingerprinting: reads the brand and plugin channels every joining client leaks, runs a translation-key probe for known hack clients, and alerts, kicks or bans by configurable rules. No client mod needed.",
+	"authors": [
+		"RpYT"
+	],
+	"contact": {},
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"rp.doorman.Doorman"
+		]
+	},
+	"mixins": [
+		"doorman.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.18.4",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*",
+		"fabric-permissions-api-v0": ">=0.6.1"
+	},
+	"suggests": {
+		"luckperms": "*"
+	}
+}

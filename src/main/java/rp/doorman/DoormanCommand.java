@@ -1,0 +1,178 @@
+package rp.doorman;
+
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import net.minecraft.command.argument.EntityArgumentType;
+import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
+import rp.doorman.audit.ProfileStore;
+import rp.doorman.detect.Detector;
+import rp.doorman.rules.Rule;
+import rp.doorman.rules.RuleSet;
+import rp.doorman.session.BrandNormalizer;
+import rp.doorman.session.ClientSession;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/** /doorman command tree (Fabric Command API v2 + brigadier). Staff only (doorman.admin). */
+public final class DoormanCommand {
+	private DoormanCommand() {
+	}
+
+	public static void register(CommandDispatcher<ServerCommandSource> dispatcher, Detector detector) {
+		dispatcher.register(CommandManager.literal("doorman")
+				.requires(PermissionGate.admin())
+				.executes(ctx -> status(ctx, detector))
+				.then(CommandManager.literal("reload").executes(ctx -> reload(ctx, detector)))
+				.then(CommandManager.literal("online").executes(ctx -> online(ctx, detector)))
+				.then(CommandManager.literal("rules").executes(ctx -> rules(ctx, detector)))
+				.then(CommandManager.literal("profile")
+						.then(CommandManager.argument("player", StringArgumentType.word())
+								.suggests((ctx, builder) -> {
+									for (String name : ctx.getSource().getServer().getPlayerManager().getPlayerNames()) {
+										builder.suggest(name);
+									}
+									return builder.buildFuture();
+								})
+								.executes(ctx -> profile(ctx, detector, StringArgumentType.getString(ctx, "player")))))
+				.then(CommandManager.literal("probe")
+						.then(CommandManager.argument("player", EntityArgumentType.player())
+								.executes(ctx -> probe(ctx, detector, false))
+								.then(CommandManager.literal("selftest").executes(ctx -> probe(ctx, detector, true)))))
+				.then(CommandManager.literal("alerts")
+						.then(CommandManager.literal("on").executes(ctx -> alerts(ctx, detector, true)))
+						.then(CommandManager.literal("off").executes(ctx -> alerts(ctx, detector, false)))));
+	}
+
+	private static int status(CommandContext<ServerCommandSource> ctx, Detector detector) {
+		DoormanConfig cfg = detector.config();
+		String text = "Doorman: " + detector.rules().rules().size() + " rules, probe "
+				+ (cfg.probe.enabled ? "on" : "off") + ", monitor_only=" + cfg.monitor_only + ", "
+				+ detector.sessions().size() + " tracked connections, " + detector.profiles().size() + " stored profiles";
+		ctx.getSource().sendFeedback(() -> Text.literal(text).formatted(Formatting.GRAY), false);
+		return 1;
+	}
+
+	private static int reload(CommandContext<ServerCommandSource> ctx, Detector detector) {
+		DoormanConfig cfg;
+		RuleSet rules;
+		try {
+			cfg = DoormanConfig.loadOrThrow();
+			rules = RuleSet.loadOrThrow();
+		} catch (IOException | RuntimeException e) {
+			Doorman.LOGGER.error("Failed to reload Doorman config; keeping the current one", e);
+			ctx.getSource().sendError(Text.literal("Reload failed: " + DoormanConfig.describe(e) + " - keeping current config"));
+			return 0;
+		}
+		detector.reload(cfg, rules);
+		int count = rules.rules().size();
+		ctx.getSource().sendFeedback(() -> Text.literal("Doorman reloaded: " + count + " rules").formatted(Formatting.GREEN), true);
+		return 1;
+	}
+
+	private static int online(CommandContext<ServerCommandSource> ctx, Detector detector) {
+		List<ClientSession> sessions = detector.sessions().all();
+		if (sessions.isEmpty()) {
+			ctx.getSource().sendFeedback(() -> Text.literal("No tracked connections").formatted(Formatting.GRAY), false);
+			return 0;
+		}
+		for (ClientSession s : sessions) {
+			String line = s.name() + ": brand=" + (s.brand() == null ? "none" : s.brand())
+					+ " channels=" + s.channels().size() + " probe=" + s.probe()
+					+ (s.resolvedKeys().isEmpty() ? "" : " resolved=" + s.resolvedKeys())
+					+ (s.matchedRules().isEmpty() ? "" : " matched=" + s.matchedRules())
+					+ (s.bypass() ? " [bypass]" : "");
+			ctx.getSource().sendFeedback(() -> Text.literal(line).formatted(Formatting.GRAY), false);
+		}
+		return sessions.size();
+	}
+
+	private static int rules(CommandContext<ServerCommandSource> ctx, Detector detector) {
+		for (Rule rule : detector.rules().rules()) {
+			String line = (rule.enabled ? "" : "(off) ") + rule.id + " [" + rule.category.name().toLowerCase() + ", "
+					+ rule.confidence + "] " + rule.actions;
+			ctx.getSource().sendFeedback(() -> Text.literal(line).formatted(rule.enabled ? Formatting.GRAY : Formatting.DARK_GRAY), false);
+		}
+		return detector.rules().rules().size();
+	}
+
+	private static int profile(CommandContext<ServerCommandSource> ctx, Detector detector, String name) {
+		ServerPlayerEntity online = ctx.getSource().getServer().getPlayerManager().getPlayer(name);
+		ClientSession session = online != null ? detector.sessions().byUuid(online.getUuid()) : null;
+		if (session != null) {
+			send(ctx, session.name() + " (online, " + session.address + ")");
+			send(ctx, "  brand: " + (session.brand() == null ? "none" : session.brand()) + "  loader: " + BrandNormalizer.loader(session.brand())
+					+ (session.laterBrand() == null ? "" : "  (changed later to: " + session.laterBrand() + ")")
+					+ (session.bypass() ? "  [bypass]" : ""));
+			send(ctx, "  configuration channels (" + session.configChannels().size() + "): " + String.join(", ", session.configChannels()));
+			send(ctx, "  play channels (" + session.playChannels().size() + "): " + String.join(", ", session.playChannels()));
+			send(ctx, "  probe: " + session.probe() + "  resolved: " + session.resolvedKeys());
+			for (Map.Entry<String, String> e : session.probeReplies().entrySet()) {
+				send(ctx, "    " + e.getKey() + " -> '" + e.getValue() + "'");
+			}
+			send(ctx, "  matched rules: " + session.matchedRules());
+			List<String> unknown = detector.unknownNamespaces(session);
+			send(ctx, "  unlisted namespaces: " + (unknown.isEmpty() ? "none" : String.join(", ", unknown)));
+			return 1;
+		}
+		Map.Entry<UUID, ProfileStore.Profile> stored = detector.profiles().findByName(name);
+		if (stored == null) {
+			ctx.getSource().sendError(Text.literal("No session or stored profile for '" + name + "'"));
+			return 0;
+		}
+		ProfileStore.Profile p = stored.getValue();
+		send(ctx, p.name + " (offline, last seen " + p.last_seen + ", " + p.joins + " joins, " + p.address + ")");
+		send(ctx, "  brand: " + (p.brand == null ? "none" : p.brand) + "  loader: " + BrandNormalizer.loader(p.brand));
+		send(ctx, "  channels (" + p.channels.size() + "): " + String.join(", ", p.channels));
+		send(ctx, "  probe: " + p.probe);
+		for (Map.Entry<String, String> e : p.probe_replies.entrySet()) {
+			send(ctx, "    " + e.getKey() + " -> '" + e.getValue() + "'");
+		}
+		send(ctx, "  matched rules: " + p.matched_rules);
+		return 1;
+	}
+
+	private static int probe(CommandContext<ServerCommandSource> ctx, Detector detector, boolean selfTest) throws CommandSyntaxException {
+		ServerPlayerEntity target = EntityArgumentType.getPlayer(ctx, "player");
+		ClientSession session = detector.sessions().byUuid(target.getUuid());
+		if (session == null) {
+			ctx.getSource().sendError(Text.literal("No tracked session for " + target.getName().getString()));
+			return 0;
+		}
+		if (session.probe() == rp.doorman.rules.ProbeState.PENDING) {
+			ctx.getSource().sendError(Text.literal("A probe is already running for " + target.getName().getString()
+					+ "; check /doorman profile in a few seconds"));
+			return 0;
+		}
+		List<rp.doorman.probe.ProbeKey> keys = detector.probeKeys(selfTest);
+		if (keys.isEmpty()) {
+			ctx.getSource().sendError(Text.literal("No enabled rule has translation keys and no self-test key is set"));
+			return 0;
+		}
+		detector.startProbe(target, session, selfTest);
+		String name = target.getName().getString();
+		ctx.getSource().sendFeedback(() -> Text.literal("Probing " + name + " with " + keys.size() + " keys"
+				+ (selfTest ? " (self-test included: expect the vanilla key to resolve)" : "")
+				+ "; check /doorman profile " + name + " in a few seconds").formatted(Formatting.GRAY), false);
+		return 1;
+	}
+
+	private static int alerts(CommandContext<ServerCommandSource> ctx, Detector detector, boolean on) throws CommandSyntaxException {
+		ServerPlayerEntity player = ctx.getSource().getPlayerOrThrow();
+		detector.profiles().setAlertsMuted(player.getUuid(), !on);
+		ctx.getSource().sendFeedback(() -> Text.literal("Doorman alerts " + (on ? "on" : "off") + " for you").formatted(Formatting.GRAY), false);
+		return 1;
+	}
+
+	private static void send(CommandContext<ServerCommandSource> ctx, String line) {
+		ctx.getSource().sendFeedback(() -> Text.literal(line).formatted(Formatting.GRAY), false);
+	}
+}

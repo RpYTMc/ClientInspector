@@ -36,7 +36,7 @@ dependencies {
 fabricApi {
 	configureTests {
 		createSourceSet = true
-		modId = "doorman-test"
+		modId = "clientinspector-test"
 		enableGameTests = false
 		enableClientGameTests = true
 		eula = true

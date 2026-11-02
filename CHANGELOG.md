@@ -18,7 +18,7 @@ First version.
   join probe must echo every hack key unresolved and a self-test probe must translate `key.jump`.
 - Canary keys: a client that provably has Fabric API or Simple Voice Chat but echoes their keys raw is
   recorded as `FILTERED` (OpSec, ExploitPreventer) and matched by the `probe-filtered` rule.
-- Profiles store, `/doorman` command, LuckPerms-compatible permissions, Discord webhook.
+- Profiles store, `/clientinspector` command, LuckPerms-compatible permissions, Discord webhook.
 
 Fingerprint sources (read 2026-11-01/02): Meteor Client branch 1.21.11 at 48030717dc0d,
 MeteorPlus branch 1.21.11 at cab06373, Meteorist tag v1.21.11-2, Wurst 7 branch 1.21.11 at

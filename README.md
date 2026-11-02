@@ -1,4 +1,4 @@
-# Doorman
+# Client Inspector
 
 Server-side Fabric mod for Minecraft 1.21.11 that fingerprints every joining client and alerts,
 kicks or bans by rules you control. **Nothing is required on the client.** Vanilla players can
@@ -23,15 +23,15 @@ Every client leaks three things to the server without any companion mod:
    binding sends back the bound key's name ("Right Shift"); vanilla sends back the raw id. The
    fourth sign line carries a random nonce so a reply is only ever read against its own sign.
 
-Doorman records all three per connection, evaluates the rules at three points (configuration,
-join, settled) and acts. Everything it saw is available with `/doorman profile <player>` even after
+Client Inspector records all three per connection, evaluates the rules at three points (configuration,
+join, settled) and acts. Everything it saw is available with `/clientinspector profile <player>` even after
 the player left.
 
 ## What it catches, honestly
 
 - **Meteor Client out of the box**, plus the Meteor+ and Meteorist addons: caught by the probe.
   Meteor's own sign filter was removed in March 2026 (PR #6186), so its keybind keys resolve plainly;
-  the nested form Doorman sends also gets through the older filter still present on 1.21.10 builds.
+  the nested form Client Inspector sends also gets through the older filter still present on 1.21.10 builds.
   Meteor issue #5864 tracks the leak.
 - **ThunderHack** (Recode and Reborn): its module descriptions live in a standard language file.
 - **Freecam, SeedcrackerX, Advanced XRay, X to Xray**: probeable, shipped as alert-only `DISALLOWED`
@@ -49,7 +49,7 @@ What it does **not** catch, so you are not surprised:
   system, so the probe cannot see them at all. Aoba, Shoreline, schizoid, Baritone, BleachHack and the
   Meteor addons Rejects, Trouser Streak, Numby, glazed and Nora Tweaks ship no language file either.
 - OpSec, ExploitPreventer and similar mods rewrite the probe reply so every mod key looks
-  unresolved. Doorman catches that with canaries: keys that must resolve on a client whose channels
+  unresolved. Client Inspector catches that with canaries: keys that must resolve on a client whose channels
   prove the mod is installed (Fabric API's `pack.source.fabricmod`, Simple Voice Chat's
   `key.push_to_talk`; `probe.canaries` in the config). A raw canary records the probe as
   `FILTERED` and fires the `probe-filtered` rule, alert-only by default; promote it to `KICK` if
@@ -59,38 +59,38 @@ What it does **not** catch, so you are not surprised:
   which is exactly the evidence the canaries rely on, so its users resolve the canaries and still
   hide Meteor. Canaries catch ExploitPreventer and OpSec's manual whitelist mode, not OpSec AUTO.
   Nothing passive beats a hider configured that way; a mandatory companion mod does.
-- A player can always recompile a client to lie. Doorman stops the unsuspecting, not the determined.
+- A player can always recompile a client to lie. Client Inspector stops the unsuspecting, not the determined.
   Keep Grim for behaviour.
 
 ## Install
 
 1. Fabric Loader 0.18.4+ and Fabric API for 1.21.11 in the server's `mods/` folder.
-2. Drop `doorman-<version>.jar` next to them. LuckPerms is optional but recommended for permissions.
-3. Start the server once. `config/doorman/config.json` and `config/doorman/rules.json` are created.
-4. Give your staff `doorman.alerts` (op level 2 by default) and yourself `doorman.admin`.
+2. Drop `clientinspector-<version>.jar` next to them. LuckPerms is optional but recommended for permissions.
+3. Start the server once. `config/clientinspector/config.json` and `config/clientinspector/rules.json` are created.
+4. Give your staff `clientinspector.alerts` (op level 2 by default) and yourself `clientinspector.admin`.
 
 Optional: set `monitor_only` to `true` for the first days. Every kick and ban is then reported as
 "not enforced (monitor_only)" so you can read the alerts before letting it act.
 
-## Commands (`doorman.admin`)
+## Commands (`clientinspector.admin`)
 
 | Command | What it does |
 |---|---|
-| `/doorman` | Rule count, probe state, tracked connections |
-| `/doorman online` | One line per connected player: brand, channel count, probe result, matches |
-| `/doorman profile <name>` | Everything observed for an online player, or the stored profile of an offline one |
-| `/doorman probe <player>` | Re-run the probe now |
-| `/doorman probe <player> selftest` | Same, plus a vanilla key (`key.jump`) that every client resolves: proves the probe works on your server |
-| `/doorman rules` | List the loaded rules with category, confidence and actions |
-| `/doorman alerts on\|off` | Mute or unmute in-game alerts for yourself |
-| `/doorman reload` | Re-read both config files |
+| `/clientinspector` | Rule count, probe state, tracked connections. `/ci` is a short alias for every subcommand |
+| `/clientinspector online` | One line per connected player: brand, channel count, probe result, matches |
+| `/clientinspector profile <name>` | Everything observed for an online player, or the stored profile of an offline one |
+| `/clientinspector probe <player>` | Re-run the probe now |
+| `/clientinspector probe <player> selftest` | Same, plus a vanilla key (`key.jump`) that every client resolves: proves the probe works on your server |
+| `/clientinspector rules` | List the loaded rules with category, confidence and actions |
+| `/clientinspector alerts on\|off` | Mute or unmute in-game alerts for yourself |
+| `/clientinspector reload` | Re-read both config files |
 
-Permissions: `doorman.admin` (commands), `doorman.alerts` (receive alerts), `doorman.bypass`
+Permissions: `clientinspector.admin` (commands), `clientinspector.alerts` (receive alerts), `clientinspector.bypass`
 (never kicked or banned, still logged and alerted). Server operators get the same exemption
 automatically. While LuckPerms has not yet answered the bypass lookup for a joining player, rules
 that would kick or ban wait until the player is in the world; everything else runs at once.
 
-## Rules (`config/doorman/rules.json`)
+## Rules (`config/clientinspector/rules.json`)
 
 A JSON array. Every condition present must hold; a rule fires once per connection.
 
@@ -103,7 +103,7 @@ A JSON array. Every condition present must hold; a rule fires once per connectio
   "enabled": true,
   "translation_keys": ["key.meteor-client.open-gui", "key.category.meteor-client.meteor-client"],
   "actions": ["LOG", "ALERT", "WEBHOOK", "KICK"],
-  "kick_message": "Doorman: %client% is not allowed on this server."
+  "kick_message": "Client Inspector: %client% is not allowed on this server."
 }
 ```
 
@@ -130,7 +130,7 @@ ban list, source `ban_source`), `KICK`. Placeholders in messages and commands: `
 Categories: `HACK`, `SPOOF`, `DISALLOWED`, `LEGIT`, `INFO`. The defaults kick only on
 high-confidence `HACK` and `SPOOF` matches; everything else alerts.
 
-## Config (`config/doorman/config.json`)
+## Config (`config/clientinspector/config.json`)
 
 - `probe.delay_ticks` / `jitter_ticks`: when after join the probe runs (default 4-6 s). If the
   player has a container open or is dead at that moment the probe waits a few seconds more, up to
@@ -151,18 +151,18 @@ high-confidence `HACK` and `SPOOF` matches; everything else alerts.
 
 ## Testing it on your server
 
-1. Install the jar, start the server, set `monitor_only` to `true` and run `/doorman reload`.
-2. Join with your normal client, then run `/doorman probe <you> selftest`. A few seconds later
-   `/doorman profile <you>` must show `probe: REPLIED` and `key.jump -> 'Jump'` (or its translation
+1. Install the jar, start the server, set `monitor_only` to `true` and run `/clientinspector reload`.
+2. Join with your normal client, then run `/clientinspector probe <you> selftest`. A few seconds later
+   `/clientinspector profile <you>` must show `probe: REPLIED` and `key.jump -> 'Jump'` (or its translation
    in your language). That proves the sign probe works end to end on your setup.
 3. Join with a throwaway instance that has Meteor installed, on an account that is **not** an
    operator (operators are exempt from kicks and bans). The log and every player with
-   `doorman.alerts` get a `Meteor Client (hack, high)` alert marked "not enforced (monitor_only)",
+   `clientinspector.alerts` get a `Meteor Client (hack, high)` alert marked "not enforced (monitor_only)",
    and the profile shows `key.meteor-client.open-gui -> 'Open GUI'`.
 4. Set `monitor_only` back to `false`, reload, and join with the Meteor instance again: the join is
    cut with the kick message a few seconds after the world loads.
 5. Have everyone else join once. Anything with `(spoof` or `(info` in the alert is worth a look at
-   `/doorman profile <name>` before you promote any rule to `KICK`.
+   `/clientinspector profile <name>` before you promote any rule to `KICK`.
 
 The automated equivalent of step 2 is `./gradlew runClientGameTest`: it starts an in-process server,
 joins it with a real client, and asserts that every hack key echoes unresolved while `key.jump` resolves.

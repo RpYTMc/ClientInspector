@@ -1,16 +1,16 @@
 {
 	"schemaVersion": 1,
-	"id": "doorman-test",
+	"id": "clientinspector-test",
 	"version": "1.0.0",
-	"name": "Doorman client game test",
+	"name": "Client Inspector client game test",
 	"environment": "client",
 	"entrypoints": {
 		"fabric-client-gametest": [
-			"rp.doorman.test.ProbeClientGameTest"
+			"rp.clientinspector.test.ProbeClientGameTest"
 		]
 	},
 	"depends": {
-		"doorman": "*",
+		"clientinspector": "*",
 		"fabric-client-gametest-api-v1": "*"
 	}
 }

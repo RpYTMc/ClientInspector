@@ -1,26 +1,26 @@
 {
 	"schemaVersion": 1,
-	"id": "doorman",
+	"id": "clientinspector",
 	"version": "${version}",
-	"name": "Doorman",
+	"name": "Client Inspector",
 	"description": "Server-side client fingerprinting: reads the brand and plugin channels every joining client leaks, runs a translation-key probe for known hack clients, and alerts, kicks or bans by configurable rules. No client mod needed.",
 	"authors": [
 		"RpYT"
 	],
 	"contact": {
-		"homepage": "https://github.com/RpYTMc/Doorman",
-		"sources": "https://github.com/RpYTMc/Doorman",
-		"issues": "https://github.com/RpYTMc/Doorman/issues"
+		"homepage": "https://github.com/RpYTMc/ClientInspector",
+		"sources": "https://github.com/RpYTMc/ClientInspector",
+		"issues": "https://github.com/RpYTMc/ClientInspector/issues"
 	},
 	"license": "MIT",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"rp.doorman.Doorman"
+			"rp.clientinspector.ClientInspector"
 		]
 	},
 	"mixins": [
-		"doorman.mixins.json"
+		"clientinspector.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=0.18.4",

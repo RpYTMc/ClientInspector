@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0 - 2026-11-02
 
 First version.
 
@@ -10,9 +10,9 @@ First version.
 - Rule engine: brand regex, channel patterns (any/all/none), no-channels, translation keys, probe
   state; phases CONFIGURE / JOIN / SETTLED; actions LOG, ALERT, WEBHOOK, COMMAND, BAN, KICK.
 - Default rules: Meteor Client, Meteor+, Meteorist and ThunderHack (probe, kick), Freecam,
-  SeedcrackerX and Advanced XRay (probe, alert), LiquidBounce and ThunderHack Lunar-spoof brands,
+  SeedcrackerX, Advanced XRay and X to Xray (probe, alert), LiquidBounce and ThunderHack Lunar-spoof brands,
   CheatBreaker brand, vanilla-brand-with-Fabric-channels, Lunar/Feather brand without their
-  channels, Fabric-without-channels, probe-blocked, and LEGIT entries for Lunar, Feather, LabyMod,
+  channels, Fabric-without-channels, probe-blocked, probe-filtered, and LEGIT entries for Lunar, Feather, LabyMod,
   Badlion, Essential, Replay Mod, Xaero's, Simple Voice Chat.
 - Client game test (`./gradlew runClientGameTest`): a real client joins an in-process server; the
   join probe must echo every hack key unresolved and a self-test probe must translate `key.jump`.

@@ -8,7 +8,7 @@ import java.util.List;
  * read from the mod's own language file on its 1.21.11 branch (see README "Where the fingerprints
  * come from"); the server owner is expected to prune, extend and promote actions.
  *
- * <p>Probe keys are sent four per sign, so keep this list lean: every four keys cost one more
+ * <p>Probe keys are sent three per sign, so keep this list lean: every three keys cost one more
  * open/close cycle on the client.
  */
 public final class DefaultRules {
@@ -35,23 +35,23 @@ public final class DefaultRules {
 				List.of("descriptions.combat.aura", "descriptions.combat.autocrystal"),
 				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK, RuleAction.KICK)));
 
-		// ---- disallowed utilities caught by the probe (alert only; promote to KICK if you ban them) ----
+		// ---- disallowed utilities caught by the probe (alert + webhook, no kick; promote to KICK if you ban them) ----
 		rules.add(probe("freecam", "Freecam", RuleCategory.DISALLOWED, "high",
 				List.of("key.freecam.toggle"),
-				List.of(RuleAction.LOG, RuleAction.ALERT)));
+				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK)));
 		rules.add(probe("seedcrackerx", "SeedcrackerX", RuleCategory.DISALLOWED, "medium",
 				List.of("settings.antiXrayMode"),
-				List.of(RuleAction.LOG, RuleAction.ALERT)));
+				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK)));
 		rules.add(probe("advanced-xray", "Advanced XRay", RuleCategory.DISALLOWED, "medium",
 				List.of("xray.mod_name"),
-				List.of(RuleAction.LOG, RuleAction.ALERT)));
+				List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK)));
 		Rule xToXray = new Rule();
 		xToXray.id = "x-to-xray";
 		xToXray.name = "X to Xray";
 		xToXray.category = RuleCategory.DISALLOWED;
 		xToXray.confidence = "medium";
 		xToXray.keybind_keys = new ArrayList<>(List.of("key.xtoxray.toggle")); // no language file; key binding only
-		xToXray.actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT));
+		xToXray.actions = new ArrayList<>(List.of(RuleAction.LOG, RuleAction.ALERT, RuleAction.WEBHOOK));
 		rules.add(xToXray);
 
 		// ---- hard-coded spoof strings: no real client on 1.21.11 sends these ----

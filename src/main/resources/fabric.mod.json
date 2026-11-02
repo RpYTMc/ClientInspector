@@ -7,7 +7,11 @@
 	"authors": [
 		"RpYT"
 	],
-	"contact": {},
+	"contact": {
+		"homepage": "https://github.com/RpYTMc/Doorman",
+		"sources": "https://github.com/RpYTMc/Doorman",
+		"issues": "https://github.com/RpYTMc/Doorman/issues"
+	},
 	"license": "MIT",
 	"environment": "*",
 	"entrypoints": {

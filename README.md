@@ -118,7 +118,7 @@ Conditions:
 | `no_channels` | the client registered nothing at all (waits for SETTLED) |
 | `translation_keys` | at least one key resolved in the probe (waits for SETTLED) |
 | `keybind_keys` | at least one key-binding id resolved in the probe; OR-ed with `translation_keys` |
-| `probe_state` | list of `REPLIED`, `BLANKED`, `NO_REPLY`, `NOT_RUN` |
+| `probe_state` | list of `REPLIED`, `FILTERED`, `BLANKED`, `NO_REPLY`, `NOT_RUN` |
 | `phase` | optional: delay the rule to `JOIN` or `SETTLED` |
 
 Channel patterns: `lunar` (any `lunar:*`), `lunar:apollo` (exact), `fabric-*:*` (glob).

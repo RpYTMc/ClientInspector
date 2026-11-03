@@ -7,8 +7,11 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerConnection;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.server.network.ServerPlayerEntity;
 import com.google.gson.GsonBuilder;
+import me.lucko.fabric.api.permissions.v0.OfflinePermissionCheckEvent;
+import net.fabricmc.fabric.api.util.TriState;
 import rp.clientinspector.ClientInspector;
 import rp.clientinspector.ClientInspectorConfig;
+import rp.clientinspector.PermissionGate;
 import rp.clientinspector.companion.ReportPayload;
 import rp.clientinspector.companion.ReportedMod;
 import rp.clientinspector.probe.ProbeKey;
@@ -26,7 +29,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * End to end: a real 1.21.11 client joins an in-process dedicated server running Client Inspector. The
@@ -42,7 +48,16 @@ public final class ProbeClientGameTest implements FabricClientGameTest {
 	@Override
 	public void runTest(ClientGameTestContext context) {
 		int oldRuleCount = writeVersion1Config();
-		try (TestDedicatedServerContext server = context.worldBuilder().createServer()) {
+		// An empty 1.21.2+ server pauses after pause-when-empty-seconds and stops ticking; the client part's
+		// configuration task must still finish, so join only after the server has paused.
+		// The bypass lookup answers half a second late, like LuckPerms loading a user from storage, so the
+		// client is held in the configuration phase by the bypass wait on a paused server.
+		OfflinePermissionCheckEvent.EVENT.register((uuid, permission) -> PermissionGate.BYPASS.equals(permission)
+				? CompletableFuture.supplyAsync(() -> TriState.DEFAULT, CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS))
+				: CompletableFuture.completedFuture(TriState.DEFAULT));
+		Properties properties = new Properties();
+		properties.setProperty("pause-when-empty-seconds", "1");
+		try (TestDedicatedServerContext server = context.worldBuilder().createServer(properties)) {
 			// 0. The server upgraded the 0.1.x rules.json in place: the owner's rule stays, the new rules and mod ids arrive.
 			List<Rule> upgraded = server.computeOnServer(s -> ClientInspector.detector().rules().rules());
 			check(upgraded.size() == oldRuleCount + CLIENT_PART_RULES.size(), "expected " + (oldRuleCount + CLIENT_PART_RULES.size())
@@ -52,6 +67,10 @@ public final class ProbeClientGameTest implements FabricClientGameTest {
 			check(upgraded.stream().anyMatch(r -> r.id.equals("meteor-client") && "meteor-client".equals(r.mod_id)), "meteor-client must get its mod_id");
 			check(server.computeOnServer(s -> ClientInspector.detector().config().rules_version) == DefaultRules.VERSION, "rules_version must be bumped");
 
+			context.waitTicks(60);
+			int pausedAt = server.computeOnServer(s -> s.getTicks());
+			context.waitTicks(20);
+			check(server.computeOnServer(s -> s.getTicks()) == pausedAt, "the empty server should have paused before the join");
 			try (TestServerConnection connection = server.connect()) {
 				connection.getClientWorld().waitForChunksRender();
 
@@ -98,6 +117,7 @@ public final class ProbeClientGameTest implements FabricClientGameTest {
 				check(report != null && "1.21.11".equals(report.gameVersion()), "the report must carry the game version: " + report);
 				check(!report.truncated(), "a dev client's list must not be cut short");
 				check(reported.values().stream().anyMatch(m -> m.sha256() != null), "at least one mod jar must be hashed: " + reported.values());
+				check(joined.bypassResolved() && !joined.bypass(), "the late bypass answer must have been waited for");
 				check(joined.mismatchReasons().isEmpty(), "an honest report must not contradict the probe: " + joined.mismatchReasons());
 
 				// 3. Self-test probe: the vanilla key must come back translated.

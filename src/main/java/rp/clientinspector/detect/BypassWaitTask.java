@@ -23,30 +23,28 @@ final class BypassWaitTask implements ServerPlayerConfigurationTask {
 	private final ServerConfigurationNetworkHandler handler;
 	private final ClientSession session;
 	private final MinecraftServer server;
-	private final TickScheduler scheduler;
 	private final int timeoutTicks;
 	private final Runnable onKnown;
 	private final AtomicBoolean done = new AtomicBoolean();
 
 	/** @param onKnown server thread, once the session's bypass is final; may kick through the handler */
-	BypassWaitTask(ServerConfigurationNetworkHandler handler, ClientSession session, MinecraftServer server, TickScheduler scheduler,
-			int timeoutTicks, Runnable onKnown) {
+	BypassWaitTask(ServerConfigurationNetworkHandler handler, ClientSession session, MinecraftServer server, int timeoutTicks,
+			Runnable onKnown) {
 		this.handler = handler;
 		this.session = session;
 		this.server = server;
-		this.scheduler = scheduler;
 		this.timeoutTicks = timeoutTicks;
 		this.onKnown = onKnown;
 	}
 
-	/** Finishing always goes through the tick scheduler, never from inside vanilla's task start. */
+	/** Finishing always goes through the server's task queue, never from inside vanilla's task start. */
 	@Override
 	public void sendPacket(Consumer<Packet<?>> sender) {
 		CompletableFuture<Boolean> lookup = session.bypassLookup();
 		if (lookup != null) {
-			lookup.whenComplete((allowed, error) -> scheduler.schedule(server.getTicks(), this::finish));
+			lookup.whenComplete((allowed, error) -> ServerQueue.later(server, this::finish));
 		}
-		scheduler.schedule(server.getTicks() + timeoutTicks, this::finish);
+		ServerQueue.afterTicks(server, timeoutTicks, this::finish);
 	}
 
 	@Override

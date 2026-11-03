@@ -90,7 +90,7 @@ public final class Detector {
 		this.probe = probe;
 		this.loadConfigOnStart = loadConfigOnStart;
 		this.actions = new ActionExecutor(() -> this.config, profiles);
-		this.companion = new CompanionServer(() -> this.config, scheduler, this::onCompanionResult);
+		this.companion = new CompanionServer(() -> this.config, this::onCompanionResult);
 	}
 
 	public ClientInspectorConfig config() {
@@ -250,7 +250,7 @@ public final class Detector {
 		if (!session.bypassResolved() && (hasClientPart || mode == ClientInspectorConfig.CompanionMode.REQUIRED)) {
 			// Configuration tasks run in order, so the report task below starts once the lookup has answered,
 			// and the report's kick rules and the required-mode decision can act before the player exists.
-			handler.addTask(new BypassWaitTask(handler, session, server, scheduler, config.companion.timeout_ticks, () -> {
+			handler.addTask(new BypassWaitTask(handler, session, server, config.companion.timeout_ticks, () -> {
 				if (!hasClientPart) {
 					requireClientPart(session, text -> handler.disconnect(text));
 				}
@@ -367,12 +367,12 @@ public final class Detector {
 	}
 
 	/**
-	 * Kicks decided in the JOIN event and the channel registrations that arrive with it wait one tick.
+	 * Kicks decided in the JOIN event and the channel registrations that arrive with it are queued.
 	 * Fabric fires JOIN while vanilla is still adding the player: a disconnect at that point removes a
 	 * player that is not listed yet, vanilla then adds it anyway, and a ghost entity stays in the world.
 	 */
 	private Consumer<Text> kickAfterJoin(ServerPlayerEntity player, MinecraftServer server) {
-		return text -> scheduler.schedule(server.getTicks() + 1, () -> {
+		return text -> ServerQueue.later(server, () -> {
 			if (player.networkHandler.isConnectionOpen()) {
 				player.networkHandler.disconnect(text);
 			}

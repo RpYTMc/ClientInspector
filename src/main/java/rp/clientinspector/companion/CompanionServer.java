@@ -9,7 +9,7 @@ import net.minecraft.server.network.ServerPlayerConfigurationTask;
 import org.jspecify.annotations.Nullable;
 import rp.clientinspector.ClientInspector;
 import rp.clientinspector.ClientInspectorConfig;
-import rp.clientinspector.detect.TickScheduler;
+import rp.clientinspector.detect.ServerQueue;
 import rp.clientinspector.rules.CompanionState;
 import rp.clientinspector.session.ClientSession;
 
@@ -36,14 +36,12 @@ public final class CompanionServer {
 	}
 
 	private final Supplier<ClientInspectorConfig> config;
-	private final TickScheduler scheduler;
 	private final Listener listener;
 	private final SecureRandom random = new SecureRandom();
 	private final Map<ClientConnection, ReportTask> pending = new ConcurrentHashMap<>();
 
-	public CompanionServer(Supplier<ClientInspectorConfig> config, TickScheduler scheduler, Listener listener) {
+	public CompanionServer(Supplier<ClientInspectorConfig> config, Listener listener) {
 		this.config = config;
-		this.scheduler = scheduler;
 		this.listener = listener;
 	}
 
@@ -76,7 +74,7 @@ public final class CompanionServer {
 			ClientInspector.LOGGER.info("{}: client part speaks protocol {}, this server {}", task.session.name(),
 					report.protocol(), CompanionProtocol.VERSION);
 		}
-		server.execute(() -> task.finish(report));
+		ServerQueue.later(server, () -> task.finish(report));
 	}
 
 	/** The connection closed during the configuration phase. */
@@ -110,7 +108,7 @@ public final class CompanionServer {
 			pending.put(connection, this);
 			sender.accept(ServerConfigurationNetworking.createS2CPacket(
 					new HelloPayload(CompanionProtocol.VERSION, nonce, cfg.companion.mode.id(), cfg.companion.download_url)));
-			scheduler.schedule(server.getTicks() + cfg.companion.timeout_ticks, () -> finish(null));
+			ServerQueue.afterTicks(server, cfg.companion.timeout_ticks, () -> finish(null));
 		}
 
 		@Override
